@@ -25,7 +25,7 @@ struct RootView: View {
                 Divider()
                 HStack { Button("关闭行为设置", action: closeSettings); Spacer(); Button("退出程序", action: quit) }
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.frame(minWidth: 960, minHeight: 760).tint(accent)
+        }.frame(minWidth: 960, minHeight: 760).background(Color(nsColor: .windowBackgroundColor)).tint(accent)
         .onChange(of: model.server) { _ in model.serverChanged() }
         .onChange(of: model.username) { value in UserDefaults.standard.set(value, forKey: "username") }
         .onChange(of: model.rememberPassword) { _ in model.rememberChanged() }

@@ -5,6 +5,8 @@ import Security
 final class ProtocolTests: XCTestCase {
     func testServerAndFormEncoding() throws {
         XCTAssertEqual(try serverURL("https://vpn.example.com").host, "vpn.example.com")
+        XCTAssertEqual(try serverURL("HTTP://vpn.example.com").scheme, "http")
+        XCTAssertEqual(webURL("HTTPS://web.example/")?.scheme, "https")
         XCTAssertEqual(try serverURL("http://vpn.example.com:8080").port, 8080)
         for bad in ["ftp://vpn.example.com", "https://user:secret@vpn.example.com", "https://vpn.example.com/path", "https://vpn.example.com?x=1", "https://vpn.example.com:70000"] { XCTAssertThrowsError(try serverURL(bad)) }
         XCTAssertEqual(String(decoding: formBody(["password": "a+b& 中"]), as: UTF8.self), "password=a%2Bb%26%20%E4%B8%AD")

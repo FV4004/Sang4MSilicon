@@ -42,7 +42,7 @@ func authFields(_ data: Data) throws -> [String: String] {
 func serverURL(_ value: String) throws -> URL {
     guard value.count <= 2048, let c = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), ["http", "https"].contains(c.scheme?.lowercased() ?? ""), let host = c.host, !host.isEmpty, c.user == nil, c.password == nil, c.query == nil, c.fragment == nil, c.path.isEmpty || c.path == "/", let url = c.url else { throw VPNError("请输入 HTTP 或 HTTPS 服务器地址和可选端口，不包含页面路径。") }
     if let port = c.port, !(1...65535).contains(port) { throw VPNError("服务器端口无效。") }
-    return url
+    var canonical = c; canonical.scheme = c.scheme?.lowercased(); return canonical.url!
 }
 func sameOrigin(_ a: URL, _ b: URL) -> Bool {
     a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased() && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))

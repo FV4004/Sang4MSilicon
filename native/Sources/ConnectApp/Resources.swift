@@ -13,6 +13,7 @@ func webURL(_ input: String, service: String = "http", port: Int? = nil) -> URL?
     let explicit = value.contains("://")
     if !explicit && ["javascript:", "data:", "file:", "mailto:", "ftp:"].contains(where: { value.lowercased().hasPrefix($0) }) { return nil }
     guard var c = URLComponents(string: explicit ? value : "\(service == "https" ? "https" : "http")://\(value)"), ["http", "https"].contains(c.scheme?.lowercased() ?? ""), let host = c.host, !host.isEmpty, c.user == nil, c.password == nil else { return nil }
+    c.scheme = c.scheme?.lowercased()
     if let existing = c.port, !(1...65535).contains(existing) { return nil }
     if c.port == nil, let port { guard (1...65535).contains(port) else { return nil }; c.port = port }
     if c.path.isEmpty { c.path = "/" }
