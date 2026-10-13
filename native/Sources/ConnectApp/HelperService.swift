@@ -93,5 +93,19 @@ func serviceInstallScript(helper: String, helperHash: String, broker: String, br
         guard let bytes, String(decoding: bytes, as: UTF8.self).contains("stopped") else { throw VPNError("Service rejected trusted client") }
         try await Task.sleep(nanoseconds: 100_000_000)
     }
-    print("Persistent service accepted two signed-client sessions without reinstall")
+    let controller = VPNController()
+    // Exercise the production controller, including a failed loopback-only tunnel.
+    // No gateway credentials or private network are used by this smoke test.
+    try await controller.recoverNetwork()
+    try await controller.recoverNetwork()
+    guard controller.state == "disconnected" else { throw VPNError("Recovery did not release controller state") }
+    do {
+        try await controller.start(host: "127.0.0.1", port: 1, sessionID: "ci-smoke", mode: "tun", socksPort: 0, httpPort: 0)
+        throw VPNError("Loopback failure unexpectedly connected")
+    } catch {
+        guard controller.state == "disconnected", controller.detail != VPNController.message("CLEANUP_FAILED") else { throw VPNError("Failed connection did not release control state") }
+    }
+    try await controller.recoverNetwork()
+    guard controller.state == "disconnected" else { throw VPNError("Recovery after failure was not reusable") }
+    print("Persistent service reuse, failed tunnel cleanup and controller recovery passed")
 }

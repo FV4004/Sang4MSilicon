@@ -61,7 +61,7 @@ DNS 只在 `/private/etc/resolver` 为下发域名创建独立 resolver 文件�
 
 DNS 分流最多支持 16,384 个有效域；父域已经覆盖的子域合并到同一 resolver。完整恢复计划在创建文件前一次写入，批量安装支持取消，域名查找按标签索引。
 
-关闭 UTUN 会删除该接口及其关联路由。恢复日志保存在 root 所有的 `/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-state/resolver-lease.json`，仅记录本次创建的 DNS 文件与内容，不含认证信息。异常退出或重启后，界面提供“恢复上次网络配置”；管理员授权恢复完成后再自动获取验证码。仅删除内容仍匹配记录的文件，外部改动会明确报错并保留记录。
+关闭 UTUN 会删除该接口及其关联路由。恢复日志保存在 root 所有的 `/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-state/resolver-lease.json`，仅记录本次创建的 DNS 文件与内容，不含认证信息。失败、异常退出或重启后，可点击窗口底部“恢复网络配置”，无需登录；恢复会复用已授权的后台服务。仅删除内容仍匹配记录的文件，外部改动会明确报错并保留记录。
 
 界面铺满初始窗口，使用沉浸标题栏，无滚动条；认证成功后切换为连接面板。商业 VPN 品牌文案不出现在应用界面。组件署名和完整许可保留在独立源码文件中。
 

@@ -14,7 +14,7 @@ struct RootView: View {
                 }
                 if model.tab == 0 { connection; Spacer(minLength: 0) } else { resources }
                 if model.authenticated { Text(model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("statusMessage") }
-                HStack(spacing: 20) { Button("关闭方式", action: closeSettings); Button("退出程序", action: quit); Spacer() }.buttonStyle(.link).font(.caption)
+                HStack(spacing: 20) { Button("关闭方式", action: closeSettings); Button("退出程序", action: quit); Spacer(); if model.vpnState == "disconnected" { Button("恢复网络配置", action: model.recoverNetwork).disabled(model.busy) } }.buttonStyle(.link).font(.caption)
                 Text("仅供开源学习与研究。默认记忆服务器与用户 ID；密码可选保存到钥匙串，会话不保存。").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }.padding(.top, 44).padding(.horizontal, 40).padding(.bottom, 20).frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(minWidth: 960, minHeight: 760).background(Color(nsColor: .windowBackgroundColor)).tint(.accentColor)
