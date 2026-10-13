@@ -6,6 +6,7 @@ import SwiftUI
     private var window: NSWindow!
     private var statusItem: NSStatusItem!
     private var terminating = false
+    private var terminationReplyPending = false
     private var terminationComplete = false
     private var closePromptVisible = false
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -14,7 +15,7 @@ import SwiftUI
         configureMainMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "连接你的网络"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 960, height: 800); window.delegate = self
-        window.contentView = NSHostingView(rootView: RootView(model: model, closeSettings: { [weak self] in self?.closeSettings() }, quit: { NSApp.terminate(nil) }))
+        window.contentView = NSHostingView(rootView: RootView(model: model, closeSettings: { [weak self] in self?.closeSettings() }, quit: { [weak self] in self?.requestQuit() }))
         window.center()
         model.showWindow = { [weak self] in self?.showInterface() }
         model.onStateChange = { [weak self] in self?.updateStatus() }
@@ -44,7 +45,7 @@ import SwiftUI
                 guard self.window.isVisible else { exit(4) }
                 print("Native window, status menu, minimize and restore smoke passed")
                 smokeTrace("requesting termination")
-                NSApp.terminate(nil)
+                self.requestQuit()
             }
         } else { model.initialize() }
     }
@@ -60,7 +61,7 @@ import SwiftUI
         let show = NSMenuItem(title: "显示界面", action: #selector(showInterface), keyEquivalent: "0"); show.target = self; appMenu.addItem(show)
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "隐藏程序", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        appMenu.addItem(NSMenuItem(title: "退出程序", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quit = NSMenuItem(title: "退出程序", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; appMenu.addItem(quit)
         let edit = NSMenuItem(); edit.title = "编辑"; main.addItem(edit); let menu = NSMenu(title: "编辑"); edit.submenu = menu
         for (title, action, key) in [("撤销", Selector(("undo:")), "z"), ("剪切", #selector(NSText.cut(_:)), "x"), ("复制", #selector(NSText.copy(_:)), "c"), ("粘贴", #selector(NSText.paste(_:)), "v"), ("全选", #selector(NSText.selectAll(_:)), "a")] { menu.addItem(NSMenuItem(title: title, action: action, keyEquivalent: key)) }
         NSApp.mainMenu = main
@@ -68,7 +69,7 @@ import SwiftUI
     @objc func showInterface() { if window?.isMiniaturized == true { window.deminiaturize(nil) }; window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func connectVPN() { model.connect() }
     @objc private func disconnectVPN() { model.disconnect() }
-    @objc private func quitApp() { NSApp.terminate(nil) }
+    @objc private func quitApp() { requestQuit() }
     func menuWillOpen(_ menu: NSMenu) { updateStatus() }
     private func updateStatus() {
         guard statusItem != nil else { return }
@@ -89,7 +90,7 @@ import SwiftUI
         if terminationComplete { return true }
         if terminating || closePromptVisible { return false }
         let remembered = CloseAction.remembered(UserDefaults.standard.string(forKey: "closeAction"))
-        if remembered == .quit { NSApp.terminate(nil); return false }
+        if remembered == .quit { requestQuit(); return false }
         if remembered == .minimize { sender.miniaturize(nil); return false }
         let alert = NSAlert(); alert.messageText = "关闭程序还是最小化？"; alert.informativeText = "最小化会保留 VPN 连接，可通过系统状态栏恢复窗口。退出会断开 VPN 并注销登录认证。"
         alert.addButton(withTitle: "最小化"); alert.addButton(withTitle: "退出程序"); alert.addButton(withTitle: "取消"); alert.showsSuppressionButton = true; alert.suppressionButton?.title = "记忆我的选择"
@@ -98,20 +99,27 @@ import SwiftUI
             self?.closePromptVisible = false
             let action = result == .alertFirstButtonReturn ? "minimize" : result == .alertSecondButtonReturn ? "quit" : nil
             if let action, alert.suppressionButton?.state == .on { UserDefaults.standard.set(action, forKey: "closeAction") }
-            if action == "minimize" { sender.miniaturize(nil) }; if action == "quit" { NSApp.terminate(nil) }
+            if action == "minimize" { sender.miniaturize(nil) }; if action == "quit" { self?.requestQuit() }
         }
         return false
     }
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if terminationComplete { return .terminateNow }; if terminating { return .terminateLater }
+    private func requestQuit() {
+        guard !terminating else { return }
         terminating = true; updateStatus()
         Task {
             smokeTrace("shutdown task running")
             if let warning = await model.shutdown() { let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "退出清理提示"; alert.informativeText = warning; alert.runModal() }
             smokeTrace("shutdown complete")
-            terminationComplete = true; if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }; sender.reply(toApplicationShouldTerminate: true)
+            terminationComplete = true
+            if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+            if terminationReplyPending { NSApp.reply(toApplicationShouldTerminate: true) } else { NSApp.terminate(nil) }
         }
-        return .terminateLater
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if terminationComplete { return .terminateNow }
+        // System termination is an AppKit event; explicit UI/menu quits start
+        // cleanup before terminate(), avoiding nested-run-loop starvation.
+        terminationReplyPending = true; requestQuit(); return .terminateLater
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showInterface(); return true }

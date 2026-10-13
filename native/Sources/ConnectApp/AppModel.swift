@@ -116,7 +116,7 @@ import AppKit
         run { [self] in guard let auth, let host = auth.base.host, let port = Int(tunnelPort) else { throw VPNError("隧道端口无效。") }; try await vpn.start(host: host, port: port, sessionID: auth.twfid, mode: mode, socksPort: Int(socksPort) ?? 0, httpPort: Int(httpPort) ?? 0) }
     }
     func disconnect() {
-        if busy && vpnState == "connecting" {
+        if busy && vpnState != "disconnected" {
             let pending = operation; pending?.cancel()
             Task { [self] in do { try await vpn.stop() } catch { message = error.localizedDescription }; await pending?.value }
         } else { run { [self] in try await vpn.stop() } }
