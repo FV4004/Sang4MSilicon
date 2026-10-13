@@ -1,6 +1,7 @@
 'use strict';
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('vpnAuth', Object.freeze({
+  readSavedServer: () => ipcRenderer.invoke('preferences:server'),
   initialize: server => ipcRenderer.invoke('auth:call', {action: 'initialize', data: {server}}),
   captcha: () => ipcRenderer.invoke('auth:call', {action: 'captcha'}),
   login: data => ipcRenderer.invoke('auth:call', {action: 'login', data}),

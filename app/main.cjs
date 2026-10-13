@@ -2,6 +2,7 @@
 const {app, BrowserWindow, ipcMain, shell} = require('electron');
 const path = require('node:path');
 const {pathToFileURL} = require('node:url');
+const {Preferences} = require('./preferences.cjs');
 const {AuthClient} = require('./auth.cjs');
 const {VpnSupervisor} = require('./vpn.cjs');
 const vpn = new VpnSupervisor({helperPath: path.join(app.isPackaged ? process.resourcesPath : __dirname, 'bin', 'mchip-vpn-helper')});
@@ -26,7 +27,7 @@ else {
     try {
       let value;
       switch (action) {
-        case 'initialize': await vpn.stop(); client?.close(); client = new AuthClient(data?.server); value = await client.initialize(); break;
+        case 'initialize': { const server = await new Preferences(app.getPath('userData')).saveServer(data?.server); await vpn.stop(); client?.close(); client = new AuthClient(server); value = await client.initialize(); break; }
         case 'captcha': if (!client) throw new Error('请先连接服务器。'); value = {captchaImage: await client.captcha()}; break;
         case 'login': if (!client) throw new Error('请先连接服务器。'); value = await client.login(data || {}); break;
         case 'challenge': if (!client) throw new Error('请先连接服务器。'); value = await client.submitChallenge(data?.value); break;
@@ -36,6 +37,10 @@ else {
       return {ok: true, value};
     } catch (error) { return {ok: false, error: error.message || '请求失败。'}; }
     finally { busy = false; }
+  });
+  ipcMain.handle('preferences:server', async event => {
+    if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== pathToFileURL(entry).href) throw new Error('请求来源无效。');
+    return {ok: true, value: {server: await new Preferences(app.getPath('userData')).readServer()}};
   });
   ipcMain.handle('vpn:call', async (event, {action, data} = {}) => {
     if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== pathToFileURL(entry).href) throw new Error('请求来源无效。');

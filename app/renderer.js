@@ -58,14 +58,16 @@ $('login-form').addEventListener('submit', e => {
       const password = $('password').value;
       try { r = unpack(await window.vpnAuth.login({username: $('username').value, password, captcha: $('captcha').value})); }
       catch (err) { phase = 'idle'; $('captcha-area').hidden = true; throw err; }
-      finally { $('password').value = ''; }
+
     }
     phase = r.phase; $('challenge').value = '';
+    if (phase === 'authenticated') $('password').value = '';
     if (phase === 'challenge') { $('captcha-area').hidden = true; $('captcha').required = false; $('password').required = false; $('challenge-name').textContent = r.nextService; }
     message(phase === 'authenticated' ? '认证成功，可以连接 VPN 本地代理。' : r.message, phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
   });
 });
 $('logout').addEventListener('click', () => operation(async () => {
+  $('password').value = '';
   unpack(await window.vpnAuth.logout()); phase = 'idle'; $('password').required = true; $('captcha').required = false; $('captcha-area').hidden = true; $('captcha-image').removeAttribute('src'); $('password').value = ''; message('登录会话已清除。');
 }));
 controls();
@@ -93,3 +95,16 @@ $('vpn-disconnect').addEventListener('click', async () => {
   try { unpack(await window.vpnAuth.disconnectVpn()); } catch (error) { $('vpn-feedback').textContent = error.message; }
 });
 $('licenses').addEventListener('click', () => window.vpnAuth.openLicenses());
+
+function canAutoPrepare(value) {
+  try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !!u.hostname && !u.username && !u.password && !u.search && !u.hash && u.pathname === '/'; } catch { return false; }
+}
+$('server').addEventListener('blur', () => {
+  const value = $('server').value.trim();
+  if (!busy && phase === 'idle' && canAutoPrepare(value)) void operation(prepare);
+});
+window.vpnAuth.readSavedServer().then(result => {
+  if (!result.ok || !$('server') || $('server').value || busy || phase !== 'idle') return;
+  const value = result.value.server;
+  if (canAutoPrepare(value)) { $('server').value = value; void operation(prepare); }
+}).catch(() => {});
