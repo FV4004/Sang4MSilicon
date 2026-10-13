@@ -15,7 +15,7 @@ func TestMChipExpiredResourceReplyDoesNotPanic(t *testing.T) {
 	if err := c.parseResources(`<Auth><ErrorCode>20026</ErrorCode></Auth>`); !errors.Is(err, ErrMChipSessionExpired) {
 		t.Fatalf("expired response: %v", err)
 	}
-	if err := c.parseResources(`<Resource><Rcs><Rc/></Rcs><Dns data="" dnsserver=""/></Resource>`); err != nil {
+	if err := c.parseResources(`<Resource><Rcs><Rc/></Rcs><Dns data="" dnsserver="192.0.2.53"/></Resource>`); err != nil {
 		t.Fatalf("optional attributes: %v", err)
 	}
 }
