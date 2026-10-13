@@ -9,6 +9,7 @@ import SwiftUI
     private var terminationComplete = false
     private var closePromptVisible = false
     func applicationDidFinishLaunching(_ notification: Notification) {
+        smokeTrace("didFinishLaunching")
         NSApp.setActivationPolicy(.regular)
         configureMainMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -23,6 +24,7 @@ import SwiftUI
         if ProcessInfo.processInfo.arguments.contains("--ui-smoke") {
             Task {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
+                smokeTrace("smoke task running")
                 guard self.window.isVisible, self.window.contentView != nil else { exit(1) }
                 let titles = self.statusItem.menu?.items.map(\.title) ?? []
                 for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
@@ -38,8 +40,10 @@ import SwiftUI
                 guard !self.windowShouldClose(self.window), self.model.authenticated else { exit(3) }
                 self.showInterface()
                 if let oldChoice { UserDefaults.standard.set(oldChoice, forKey: "closeAction") } else { UserDefaults.standard.removeObject(forKey: "closeAction") }
+                smokeTrace("smoke task running")
                 guard self.window.isVisible else { exit(4) }
                 print("Native window, status menu, minimize and restore smoke passed")
+                smokeTrace("requesting termination")
                 NSApp.terminate(nil)
             }
         } else { model.initialize() }
@@ -102,7 +106,9 @@ import SwiftUI
         if terminationComplete { return .terminateNow }; if terminating { return .terminateLater }
         terminating = true; updateStatus()
         Task {
+            smokeTrace("shutdown task running")
             if let warning = await model.shutdown() { let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "退出清理提示"; alert.informativeText = warning; alert.runModal() }
+            smokeTrace("shutdown complete")
             terminationComplete = true; if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }; sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -110,6 +116,9 @@ import SwiftUI
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showInterface(); return true }
 }
+func smokeTrace(_ message: String) {
+    if ProcessInfo.processInfo.arguments.contains("--ui-smoke") { FileHandle.standardError.write(Data(("UI smoke: " + message + "\n").utf8)) }
+}
 @main struct NativeApp {
-    @MainActor static func main() { let app = NSApplication.shared; let delegate = AppDelegate(); app.delegate = delegate; withExtendedLifetime(delegate) { app.run() } }
+    @MainActor static func main() { smokeTrace("starting application"); let app = NSApplication.shared; let delegate = AppDelegate(); smokeTrace("delegate initialized"); app.delegate = delegate; withExtendedLifetime(delegate) { app.run() } }
 }

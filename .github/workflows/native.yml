@@ -12,7 +12,16 @@ permissions:
 jobs:
   native-test-and-package:
     runs-on: macos-15
+    permissions:
+      contents: read
+      actions: write
     steps:
+      - name: Stop superseded migration runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run cancel 38380669079 --repo "$GITHUB_REPOSITORY" || true
+          gh run cancel 38380956700 --repo "$GITHUB_REPOSITORY" || true
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
@@ -34,7 +43,7 @@ jobs:
         run: python3 scripts/package-native.py
       - name: Native window and status bar smoke
         timeout-minutes: 2
-        run: dist-native/Connect.app/Contents/MacOS/Connect --ui-smoke
+        run: python3 -c 'import subprocess; subprocess.run(["dist-native/Connect.app/Contents/MacOS/Connect", "--ui-smoke"], check=True, timeout=60)' 
       - name: Verify source provenance and archive
         run: |
           set -euo pipefail
