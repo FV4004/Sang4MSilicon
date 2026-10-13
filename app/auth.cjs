@@ -65,7 +65,7 @@ class AuthClient {
     const cookie = await this.jar.getCookieString(u.href);
     const response = await new Promise((resolve, reject) => {
       const req = (u.protocol === 'https:' ? https : http).request(u, {method, ...(this.tlsCA ? {ca: this.tlsCA} : {}), headers: {
-        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.1.0-beta.3', ...(cookie ? {Cookie: cookie} : {}), ...headers,
+        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.2.0-beta.1', ...(cookie ? {Cookie: cookie} : {}), ...headers,
         ...(payload ? {'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': payload.length} : {})
       }}, res => {
         const chunks = []; let size = 0;
@@ -164,7 +164,7 @@ class AuthClient {
     const u = new URL('/por/update_session.csp', this.base); u.searchParams.set('twfid', this.twfid);
     await this.request(u.href, {headers: {TWFID: this.twfid}});
     this.authenticated = true; this.challenge = ''; this.config = null;
-    return {phase: 'authenticated', message: '认证成功。此测试版尚未建立 VPN 数据隧道。'};
+    return {phase: 'authenticated', message: '认证成功，可以连接 VPN 本地代理。'};
   }
   async submitChallenge(value) {
     if (typeof value !== 'string' || !value.trim() || value.length > 256) throw new Error('请输入动态验证码或应答。');

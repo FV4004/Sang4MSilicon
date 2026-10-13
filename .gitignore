@@ -3,3 +3,7 @@ app/node_modules/
 .cache/
 dist/
 .DS_Store
+
+.build/
+app/bin/
+PUBLISHED.json

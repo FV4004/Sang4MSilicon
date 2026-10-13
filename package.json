@@ -1,14 +1,16 @@
 {
   "name": "m-chip-vpn-login",
-  "version": "0.1.0-beta.3",
-  "description": "EasyConnect-compatible HTTP/HTTPS authentication tester for Apple Silicon",
+  "version": "0.2.0-beta.1",
+  "description": "Apple Silicon EasyConnect-compatible VPN with HTTP/HTTPS authentication and local proxies",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.cjs",
     "start": "npx --yes --package=electron@44.7.0 electron app",
-    "package:mac": "node scripts/package-mac.cjs"
+    "package:mac": "node scripts/package-mac.cjs",
+    "build:vpn": "python3 scripts/prepare-vpn.py && cd vpn-helper && go build -trimpath -o ../.build/mchip-vpn-helper ."
   },
   "devDependencies": {
     "@electron/packager": "20.3.0"
-  }
+  },
+  "license": "AGPL-3.0-only"
 }
