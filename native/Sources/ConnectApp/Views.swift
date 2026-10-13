@@ -17,14 +17,14 @@ struct RootView: View {
                 Label(model.vpnState == "connected" ? "VPN 已连接" : "VPN 未连接", systemImage: model.vpnState == "connected" ? "checkmark.shield.fill" : "shield").foregroundStyle(model.vpnState == "connected" ? accent : .secondary)
                 Text("仅供开源学习与研究").font(.caption).foregroundStyle(.secondary)
             }.padding(28).frame(width: 240).frame(maxHeight: .infinity).background(accent.opacity(0.06))
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack { Text(model.tab == 0 ? "账号认证" : "内网资源").font(.largeTitle.bold()); Spacer(); if model.busy { ProgressView().controlSize(.small) }; Text(model.authenticated ? "认证成功" : "待认证").font(.callout).padding(.horizontal, 14).padding(.vertical, 8).background(accent.opacity(0.1)).clipShape(Capsule()) }
                 if model.tab == 0 { connection } else { resources }
                 Spacer(minLength: 0)
                 Text(model.message).font(.callout).foregroundStyle(.secondary).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("statusMessage")
                 Divider()
                 HStack { Button("关闭行为设置", action: closeSettings); Spacer(); Button("退出程序", action: quit) }
-            }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(minWidth: 960, minHeight: 760).tint(accent)
         .onChange(of: model.server) { _ in model.serverChanged() }
         .onChange(of: model.username) { value in UserDefaults.standard.set(value, forKey: "username") }
@@ -75,7 +75,7 @@ struct RootView: View {
         }
     }
     private var resources: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Picker("分组", selection: $model.selectedGroup) { Text("全部分组").tag(""); ForEach(model.groups) { Text($0.name).tag($0.id) } }.frame(maxWidth: 240)
                 TextField("搜索名称、IP 或域名", text: $model.search).textFieldStyle(.roundedBorder)
@@ -98,15 +98,15 @@ struct ResourceCard: View {
     let item: VPNResource; let group: String; let busy: Bool; let open: (ResourceTarget) -> Void
     @State private var selection = 0
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(group).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(item.name).font(.headline).lineLimit(2).frame(height: 36, alignment: .topLeading)
+            Text(item.name).font(.headline).lineLimit(2).frame(height: 32, alignment: .topLeading)
             Text("地址：" + item.hosts.joined(separator: "；")).font(.callout).lineLimit(2).textSelection(.enabled)
             Text("端口：" + (item.ports.isEmpty ? "默认" : item.ports.joined(separator: "；"))).font(.callout).lineLimit(1).textSelection(.enabled)
             Spacer(minLength: 0)
             if item.targets.count > 1 { Picker("访问地址", selection: $selection) { ForEach(item.targets) { Text($0.label).tag($0.id) } }.labelsHidden() }
             if item.targets.isEmpty { Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
             else { Button(item.gateway ? "打开网关 Web" : "浏览器访问") { if let target = item.targets.first(where: { $0.id == selection }) ?? item.targets.first { open(target) } }.disabled(busy) }
-        }.padding(16).frame(maxWidth: .infinity, minHeight: 208, maxHeight: 208, alignment: .topLeading).background(Color.primary.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius: 12))
+        }.padding(12).frame(maxWidth: .infinity, minHeight: 208, maxHeight: 208, alignment: .topLeading).background(Color.primary.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

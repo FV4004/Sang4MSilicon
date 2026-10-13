@@ -28,7 +28,7 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
     func request(_ path: String, origin: URL? = nil, form: [String: String]? = nil, headers: [String: String] = [:], redirects: Int = 0) async throws -> Data {
         guard !closed else { throw VPNError("登录会话已关闭。") }
         let current = generation; let endpoint = origin ?? base
-        guard var components = URLComponents(url: URL(string: path, relativeTo: endpoint)!.absoluteURL, resolvingAgainstBaseURL: false), let raw = components.url, sameOrigin(raw, endpoint) else { throw VPNError("服务器要求跳转到其他地址。") }
+        guard let resolved = URL(string: path, relativeTo: endpoint)?.absoluteURL, var components = URLComponents(url: resolved, resolvingAgainstBaseURL: false), let raw = components.url, sameOrigin(raw, endpoint) else { throw VPNError("服务器要求跳转到其他地址。") }
         var query = components.queryItems ?? []; if !query.contains(where: { $0.name == "apiversion" }) { query.append(URLQueryItem(name: "apiversion", value: "1")) }; components.queryItems = query
         var request = URLRequest(url: components.url!)
         request.setValue("MChipVPNLogin/0.5.0-beta.1", forHTTPHeaderField: "User-Agent")
@@ -73,7 +73,7 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
     var captchaRequired: Bool { (config["USE_RAND_CODE"] ?? config["RndImg"] ?? "0") == "1" }
     func captcha() async throws -> Data {
         guard !config.isEmpty, !authenticated, challenge.isEmpty else { throw VPNError("请重新初始化登录会话。") }
-        guard var url = URLComponents(url: URL(string: config["RAND_CODE_URL"] ?? "/por/rand_code.csp", relativeTo: base)!.absoluteURL, resolvingAgainstBaseURL: false) else { throw VPNError("验证码地址无效。") }
+        guard let resolved = URL(string: config["RAND_CODE_URL"] ?? "/por/rand_code.csp", relativeTo: base)?.absoluteURL, var url = URLComponents(url: resolved, resolvingAgainstBaseURL: false) else { throw VPNError("验证码地址无效。") }
         var items = url.queryItems ?? []; items.append(URLQueryItem(name: "rnd", value: UUID().uuidString)); url.queryItems = items
         return try await request(url.url!.absoluteString)
     }

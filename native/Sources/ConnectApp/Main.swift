@@ -20,15 +20,36 @@ import SwiftUI
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu(); menu.delegate = self; statusItem.menu = menu
         updateStatus(); showInterface()
-        model.initialize()
         if ProcessInfo.processInfo.arguments.contains("--ui-smoke") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self, self.window.isVisible, self.statusItem.menu?.items.contains(where: { $0.title == "连接 VPN" }) == true, self.window.contentView != nil else { exit(1) }
-                print("Native window and status menu smoke passed")
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard self.window.isVisible, self.window.contentView != nil else { exit(1) }
+                let titles = self.statusItem.menu?.items.map(\.title) ?? []
+                for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
+                self.window.setContentSize(NSSize(width: 960, height: 800))
+                self.capturePreview("login-preview.png")
+                self.model.authenticated = true
+                let fixture = "<Resource><RcGroups><Group id='g' name='演示资源'/></RcGroups><Rcs>" + (1...4).map { "<Rc id='\($0)' name='示例内网资源 \($0)' type='1' rc_grp_id='g' svc='http' host='10.0.0.\($0);10.0.1.\($0)' port='8080~8080;8080~8080'/>" }.joined() + "</Rcs></Resource>"
+                self.model.groups = (try? parseResources(Data(fixture.utf8))) ?? []; self.model.tab = 1
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.capturePreview("resources-preview.png")
+                let oldChoice = UserDefaults.standard.string(forKey: "closeAction")
+                UserDefaults.standard.set("minimize", forKey: "closeAction")
+                guard !self.windowShouldClose(self.window), self.model.authenticated else { exit(3) }
+                self.showInterface()
+                if let oldChoice { UserDefaults.standard.set(oldChoice, forKey: "closeAction") } else { UserDefaults.standard.removeObject(forKey: "closeAction") }
+                guard self.window.isVisible else { exit(4) }
+                print("Native window, status menu, minimize and restore smoke passed")
                 NSApp.terminate(nil)
             }
-        }
+        } else { model.initialize() }
     }
+    private func capturePreview(_ name: String) {
+        guard let view = window.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        if let data = bitmap.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: "dist-native/" + name)) }
+    }
+
     private func configureMainMenu() {
         let main = NSMenu(); let application = NSMenuItem(); main.addItem(application)
         let appMenu = NSMenu(); application.submenu = appMenu

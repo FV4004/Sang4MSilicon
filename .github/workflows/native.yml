@@ -48,6 +48,10 @@ jobs:
             dist-native/*-source.tar.gz
             dist-native/build-info.json
             dist-native/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Connect-native-ui-previews
+          path: dist-native/*-preview.png
   publish:
     needs: native-test-and-package
     if: github.event_name == 'push'
