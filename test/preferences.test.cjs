@@ -48,6 +48,7 @@ test('main remembers a validated address before failed gateway initialization an
   vm.runInNewContext(source, {__dirname: appDirectory, require(name) {
     if (name === 'electron') return electron;
     if (name === './preferences.cjs') return {Preferences};
+    if (['./resources.cjs','./resource-browser.cjs','./lifecycle.cjs'].includes(name))return require('../app/'+name.slice(2));
     if (name === './credentials.cjs') return require('../app/credentials.cjs');
     if (name === './auth.cjs') return {AuthClient: FakeAuth};
     if (name === './vpn.cjs') return {VpnSupervisor: FakeVpn};

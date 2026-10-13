@@ -304,6 +304,9 @@ func (t *routeTable) add(p netip.Prefix) error {
 		return errors.New("routes stopping")
 	}
 	a := p.Addr()
+	if t.gateways[a] && p.Bits() == 32 {
+		return nil
+	} // DNS may resolve the gateway; retain its physical bypass route.
 	if !a.Is4() || a.IsLoopback() || a.IsMulticast() || a.IsUnspecified() || t.gateways[a] {
 		return errors.New("invalid route")
 	}

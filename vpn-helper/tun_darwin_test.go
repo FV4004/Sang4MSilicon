@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -63,4 +64,15 @@ func TestNativeUTUNSmoke(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatal("UTUN interface persisted after close")
+}
+
+func TestGatewayDNSAnswerPreservesPhysicalBypass(t *testing.T) {
+	gateway := netip.MustParseAddr("192.0.2.1")
+	table := &routeTable{device: "not-a-real-interface", gateways: map[netip.Addr]bool{gateway: true}}
+	if e := table.add(netip.PrefixFrom(gateway, 32)); e != nil {
+		t.Fatal("gateway DNS response was rejected", e)
+	}
+	if len(table.prefixes) != 0 {
+		t.Fatal("gateway was redirected into TUN")
+	}
 }
