@@ -92,6 +92,7 @@ function updateVpn(status) {
   const area = $('vpn-feedback');
   area.className = 'feedback' + (status.code || status.state === 'error' ? ' error' : status.state === 'connected' ? ' success' : '');
   area.textContent = status.message || (status.state === 'connecting' ? stages[status.stage] || '正在连接 VPN…' : status.state === 'connected' ? status.mode === 'tcp' ? 'TCP 代理已启动（按需建连）。' : status.mode === 'tun' ? '系统 TUN 已连接，内网资源可直接访问。' : 'VPN 数据隧道已建立，本地代理可用。' : status.state === 'stopping' ? '正在关闭数据隧道…' : 'VPN 已断开。');
+  if(status.state==='connected'&&status.warnings?.length)area.textContent+=' '+status.warnings.join(' ');
   $('vpn-ip').textContent = status.ip || (status.mode === 'tcp' ? '按需 TCP 连接' : '—');
   $('vpn-socks').textContent = status.socksAddress || '';
   $('vpn-http').textContent = status.httpAddress || '';

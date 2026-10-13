@@ -32,13 +32,38 @@ func domainName(s string) (string, error) {
 			return "", errors.New("invalid DNS domain")
 		}
 		for _, c := range label {
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
 				return "", errors.New("invalid DNS domain")
 			}
 		}
 	}
 	return s, nil
 }
+
+// Some gateways omit the DNS element. Upstream still provides parsed IP ranges
+// but returns before constructing IPSet; retain those ranges for TUN routing.
+func resourceIPSet(set *netaddr.IPSet, resources []clientpkg.IPResource) (*netaddr.IPSet, error) {
+	if set != nil {
+		return set, nil
+	}
+	if resources == nil {
+		return nil, errors.New("IP resource parse unavailable")
+	}
+	var b netaddr.IPSetBuilder
+	for _, r := range resources {
+		a, ok := netaddr.FromStdIP(r.IPMin)
+		if !ok || !a.Is4() {
+			return nil, errors.New("invalid IPv4 range")
+		}
+		z, ok := netaddr.FromStdIP(r.IPMax)
+		if !ok || !z.Is4() || z.Less(a) {
+			return nil, errors.New("invalid IPv4 range")
+		}
+		b.AddRange(netaddr.IPRangeFrom(a, z))
+	}
+	return b.IPSet()
+}
+
 func routePlan(set *netaddr.IPSet, dnsIPs []string, static map[string][]net.IP, bypass []net.IP) ([]netip.Prefix, error) {
 	var b netaddr.IPSetBuilder
 	if set != nil {
@@ -89,31 +114,86 @@ func routePlan(set *netaddr.IPSet, dnsIPs []string, static map[string][]net.IP, 
 	}
 	return out, nil
 }
-func dnsDomains(domains clientpkg.DomainResources, static map[string][]net.IP) ([]string, error) {
-	set := map[string]bool{}
+
+// DNS is optional for IP routing. Unsupported DNS rules must not erase usable IP resources.
+type dnsPolicy struct {
+	Names    []string
+	Records  map[string][]net.IP
+	Servers  []string
+	Warnings []string
+}
+
+func prepareDNSPolicy(domains clientpkg.DomainResources, static map[string][]net.IP, servers []string, gateways []net.IP) (dnsPolicy, error) {
+	p := dnsPolicy{Records: map[string][]net.IP{}}
+	names := map[string]bool{}
+	skipped := false
 	for d := range domains {
-		s, e := domainName(d)
+		name, e := domainName(d)
 		if e != nil {
-			return nil, e
+			skipped = true
+			continue
 		}
-		set[s] = true
+		names[name] = true
 	}
-	for d := range static {
-		s, e := domainName(d)
+	for d, ips := range static {
+		name, e := domainName(d)
 		if e != nil {
-			return nil, e
+			skipped = true
+			continue
 		}
-		set[s] = true
+		for _, ip := range ips {
+			if v := ip.To4(); v != nil && v.IsGlobalUnicast() {
+				p.Records[name] = append(p.Records[name], v)
+			}
+		}
+		if len(p.Records[name]) > 0 {
+			names[name] = true
+		}
 	}
-	out := make([]string, 0, len(set))
-	for d := range set {
-		out = append(out, d)
+	seen := map[string]bool{}
+	for _, s := range servers {
+		ip := net.ParseIP(strings.TrimSpace(s))
+		if ip == nil || ip.To4() == nil || !ip.IsGlobalUnicast() {
+			continue
+		}
+		bypass := false
+		for _, gateway := range gateways {
+			if ip.Equal(gateway) {
+				bypass = true
+				break
+			}
+		}
+		if bypass {
+			continue
+		}
+		s = ip.String()
+		if !seen[s] {
+			p.Servers = append(p.Servers, s)
+			seen[s] = true
+		}
+		if len(p.Servers) == 2 {
+			break
+		}
 	}
-	sort.Strings(out)
-	if len(out) > 128 {
-		return nil, errors.New("too many DNS domains")
+	if len(p.Servers) == 0 && len(names) > 0 {
+		p.Warnings = append(p.Warnings, "DNS_UNAVAILABLE")
+		// Install resolvers only for records the gateway supplied explicitly.
+		names = map[string]bool{}
+		for name := range p.Records {
+			names[name] = true
+		}
 	}
-	return out, nil
+	if skipped {
+		p.Warnings = append(p.Warnings, "DOMAIN_RULE_SKIPPED")
+	}
+	for name := range names {
+		p.Names = append(p.Names, name)
+	}
+	sort.Strings(p.Names)
+	if len(p.Names) > 128 {
+		return p, errors.New("DNS domain limit exceeded")
+	}
+	return p, nil
 }
 
 // Read IPv4 packets from a TLS byte stream; TLS record boundaries are not packet boundaries.

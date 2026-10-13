@@ -373,36 +373,35 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}
 	stage("ip")
 	set, _ := vpn.IPSet()
+	ranges, _ := vpn.IPResources()
 	domains, _ := vpn.DomainResources()
 	static, _ := vpn.DNSResource()
 	servers, _ := vpn.DNSServers()
-	if len(servers) > 2 {
-		servers = servers[:2]
-	}
-	names, e := dnsDomains(domains, static)
-	if e != nil {
-		fail("CONFIG_FAILED")
+
+	if set == nil && ranges == nil && domains == nil && static == nil {
+		fail("RESOURCE_FETCH_FAILED")
 		return nil
 	}
-	if len(names) > 0 && len(servers) == 0 {
-		for _, name := range names {
-			if _, ok := static[name]; !ok {
-				fail("CONFIG_FAILED")
-				return nil
-			}
-		}
+	set, e = resourceIPSet(set, ranges)
+	if e != nil {
+		fail("RESOURCE_PARSE_FAILED")
+		return nil
 	}
-	for _, server := range servers {
-		for _, gateway := range underlay.addresses {
-			if net.ParseIP(server).Equal(gateway) {
-				fail("CONFIG_FAILED")
-				return nil
-			}
-		}
+	policy, e := prepareDNSPolicy(domains, static, servers, underlay.addresses)
+	if e != nil {
+		fail("DNS_DOMAIN_LIMIT")
+		return nil
 	}
+	names := policy.Names
+	static = policy.Records
+	servers = policy.Servers
 	plan, e := routePlan(set, servers, static, underlay.addresses)
 	if e != nil {
-		fail("TUN_UNSUPPORTED")
+		if len(set.Prefixes()) == 0 && len(static) == 0 && len(servers) == 0 {
+			fail("DNS_ROUTING_UNAVAILABLE")
+		} else {
+			fail("RESOURCE_ROUTES_UNSUPPORTED")
+		}
 		return nil
 	}
 	stage("tunnel")
@@ -512,7 +511,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if ctx.Err() != nil {
 		return nil
 	}
-	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names)})
+	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names), "warnings": policy.Warnings})
 	select {
 	case <-ctx.Done():
 		return nil

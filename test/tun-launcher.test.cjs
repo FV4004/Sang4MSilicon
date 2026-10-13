@@ -69,8 +69,8 @@ test('TUN supervisor validates readiness separately and uses privileged adapter'
   const supervisor = new VpnSupervisor({helperPath: '/helper', spawnChild: () => { throw new Error('Wrong mode'); }, spawnTunChild: () => child, tunStartTimeout: 1000});
   const pending = supervisor.start({hostname: 'vpn.example.com', tunnelPort: 443, sessionId: 'secret', mode: 'tun'});
   child.stdout.write('{"event":"stage","stage":"routes"}\n'); assert.equal(supervisor.status.stage, 'routes');
-  child.stdout.write('{"event":"ready","mode":"tun","ip":"10.0.0.2","interface":"utun3","routeCount":3,"dnsCount":0}\n');
-  assert.equal((await pending).interface, 'utun3'); await supervisor.stop();
+  child.stdout.write('{"event":"ready","mode":"tun","ip":"10.0.0.2","interface":"utun3","routeCount":3,"dnsCount":0,"warnings":["DNS_UNAVAILABLE","private-session-secret","DNS_UNAVAILABLE"]}\n');
+  const result=await pending;assert.equal(result.interface,'utun3');assert.deepEqual(result.warnings,['网关未提供可用内网 DNS，暂只分流 IP 与静态域名。']);assert.ok(!JSON.stringify(result).includes('private-session-secret'));await supervisor.stop();
 });
 
 test('process exit racing the socket cleanup acknowledgement does not report a false failure', async()=>{

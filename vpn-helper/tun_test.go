@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"github.com/miekg/dns"
+	clientpkg "github.com/mythologyli/zju-connect/client"
 	"inet.af/netaddr"
 	"io"
 	"net"
@@ -133,5 +134,37 @@ func TestSplitDNSUsesAuthorizedStaticRecordsOnly(t *testing.T) {
 		if e != nil || r.Rcode != x.code || len(r.Answer) != x.count {
 			t.Fatalf("DNS %s: %v %v", x.name, r, e)
 		}
+	}
+}
+
+func TestMissingDNSDoesNotDiscardUsableIPRanges(t *testing.T) {
+	set, e := resourceIPSet(nil, []clientpkg.IPResource{{IPMin: net.ParseIP("10.4.0.1"), IPMax: net.ParseIP("10.4.0.25")}})
+	if e != nil || !set.Contains(netaddr.MustParseIP("10.4.0.20")) {
+		t.Fatal("lost parsed IP resources", e)
+	}
+	if _, e = resourceIPSet(nil, nil); e == nil {
+		t.Fatal("missing resource response accepted")
+	}
+}
+func TestOptionalDNSRetainsStaticNamesAndIPv4Routes(t *testing.T) {
+	p, e := prepareDNSPolicy(clientpkg.DomainResources{"service.internal": nil, "": nil}, map[string][]net.IP{"APP.INTERNAL.": {net.ParseIP("10.4.0.8")}}, nil, nil)
+	if e != nil || len(p.Names) != 1 || p.Names[0] != "app.internal" || len(p.Records["app.internal"]) != 1 || len(p.Servers) != 0 || len(p.Warnings) != 2 {
+		t.Fatalf("bad optional DNS policy: %+v %v", p, e)
+	}
+	var b netaddr.IPSetBuilder
+	b.AddPrefix(netaddr.MustParseIPPrefix("10.4.0.0/24"))
+	set, _ := b.IPSet()
+	if _, e = routePlan(set, p.Servers, p.Records, nil); e != nil {
+		t.Fatal("DNS omission disabled IP routing", e)
+	}
+}
+func TestGatewayDNSAndPlaceholdersDoNotAbortResourcePolicy(t *testing.T) {
+	p, e := prepareDNSPolicy(clientpkg.DomainResources{"_service.internal": nil}, nil, []string{"0.0.0.0", "192.0.2.1", "10.4.0.53"}, []net.IP{net.ParseIP("192.0.2.1")})
+	if e != nil || len(p.Servers) != 1 || p.Servers[0] != "10.4.0.53" || len(p.Names) != 1 || len(p.Warnings) != 0 {
+		t.Fatalf("bad DNS selection: %+v %v", p, e)
+	}
+	p, e = prepareDNSPolicy(clientpkg.DomainResources{"service.internal": nil}, nil, []string{"192.0.2.1"}, []net.IP{net.ParseIP("192.0.2.1")})
+	if e != nil || len(p.Servers) != 0 || len(p.Names) != 0 || len(p.Warnings) != 1 {
+		t.Fatal("gateway DNS must produce explicit limited-DNS warning", p, e)
 	}
 }

@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib, os, stat, zipfile
 root = Path(__file__).resolve().parents[1]
 app = root / 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app'
-out = root / 'dist/MChipVPNLogin-0.3.0-beta.1-mac-arm64-unsigned.zip'
+out = root / 'dist/MChipVPNLogin-0.3.0-beta.2-mac-arm64-unsigned.zip'
 with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for parent, dirs, files in os.walk(app, followlinks=False):
         for name in dirs + files:

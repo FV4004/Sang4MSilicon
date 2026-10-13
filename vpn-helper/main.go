@@ -226,7 +226,7 @@ func main() {
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Println("mchip-vpn-helper 0.3.0-beta.1; zju-connect c19eb4ed")
+		fmt.Println("mchip-vpn-helper 0.3.0-beta.2; zju-connect c19eb4ed")
 		return
 	}
 	// A single bounded stdin record carries the session; never argv, env or a file.
