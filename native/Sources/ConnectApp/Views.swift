@@ -67,7 +67,6 @@ struct RootView: View {
                             }
                         }
                     }
-                    Button("获取 / 刷新验证码", action: model.initialize).controlSize(.small).disabled(model.busy || model.server.isEmpty)
                 } else { field("后续认证 · 动态验证码或应答") { TextField("输入动态验证码或应答", text: $model.response).textFieldStyle(.roundedBorder).controlSize(.large).disabled(model.busy) } }
                 Button(action: model.login) { Text(model.challenge ? "提交验证" : "登录").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy || !model.ready).keyboardShortcut(.defaultAction)
                 loginFeedback
@@ -113,7 +112,7 @@ struct RootView: View {
             HStack { heading("授权内网资源", "资源目录"); Spacer(); Button("刷新", action: model.refreshResources).controlSize(.large).disabled(model.busy) }
             HStack(spacing: 12) {
                 Picker("分组", selection: $model.selectedGroup) { Text("全部分组").tag(""); ForEach(model.groups) { Text($0.name).tag($0.id) } }.labelsHidden().controlSize(.large).frame(maxWidth: 220)
-                TextField("搜索名称、IP 或端口", text: $model.search).textFieldStyle(.roundedBorder).controlSize(.large)
+                TextField("搜索名称或网址", text: $model.search).textFieldStyle(.roundedBorder).controlSize(.large)
             }
             Text("\(model.filteredResources.count) 个资源 · 可连续滚动浏览").font(.caption).foregroundStyle(.secondary)
             GeometryReader { geometry in
@@ -150,7 +149,6 @@ struct ResourceCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(group).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             Text(item.name).font(.system(size: 12, weight: .semibold)).lineLimit(2).help(item.name)
-            Text("端口：" + (item.ports.isEmpty ? "默认" : item.ports.joined(separator: "；"))).font(.system(size: 11)).lineLimit(1).textSelection(.enabled).help(item.ports.joined(separator: "；"))
             Spacer(minLength: 0)
             if item.targets.isEmpty { Text(item.reason).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
             HStack(spacing: 6) {

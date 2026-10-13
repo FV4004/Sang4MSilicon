@@ -9,6 +9,7 @@ final class MockProtocol: URLProtocol {
     static let lock = NSLock()
     static func reset(offline: Bool) { lock.lock(); defer { lock.unlock() }; requests = []; failLogout = offline; handler = nil }
     static func install(_ handler: @escaping (URLRequest) -> Data) { lock.lock(); defer { lock.unlock() }; self.handler = handler }
+    static func snapshot() -> [URLRequest] { lock.lock(); defer { lock.unlock() }; return requests }
     static func lastLogout() -> URLRequest? { lock.lock(); defer { lock.unlock() }; return requests.last { $0.url?.path == "/por/logout.csp" } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

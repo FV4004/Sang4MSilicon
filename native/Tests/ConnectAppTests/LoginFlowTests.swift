@@ -42,7 +42,10 @@ final class LoginFlowTests: XCTestCase {
         let suite = "AutoTUN-" + UUID().uuidString; let preferences = UserDefaults(suiteName: suite)!
         defer { preferences.removePersistentDomain(forName: suite) }
         var requests: [VPNConnectionRequest] = []
-        let model = makeModel(preferences: preferences) { requests.append($0) }
+        let model = makeModel(preferences: preferences) { request in
+            XCTAssertTrue(MockProtocol.snapshot().contains { $0.url?.path == "/por/rclist.csp" }, "Portal resources must load before TUN starts")
+            requests.append(request)
+        }
         model.server = "https://vpn.example"; model.username = "user"; model.password = "secret"; model.mode = "proxy"
         model.initialize(); try await settle(model); model.login(); try await settle(model)
         XCTAssertTrue(model.authenticated); XCTAssertEqual(model.loginTone, .success); XCTAssertEqual(model.mode, "tun")

@@ -29,7 +29,7 @@ func helperInstallScript(source: String, hash: String, socket: String, uid: uid_
     exec \(shellQuote(destination)) --tun-control \(shellQuote(socket)) --owner-uid \(uid) </dev/null >/dev/null 2>&1
     """
 }
-private func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
+func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
     var directory = stat(); var file = stat()
     guard lstat("/var/run/mchip-vpn", &directory) == 0, lstat(path, &file) == 0 else { if errno == ENOENT { return nil }; throw VPNError("无法检查 VPN 控制接口。") }
     guard directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == 0, directory.st_mode & 0o022 == 0, file.st_mode & S_IFMT == S_IFSOCK, file.st_uid == uid, file.st_mode & 0o777 == 0o600 else { throw VPNError("VPN 控制接口权限无效。") }
@@ -40,7 +40,9 @@ private func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
     withUnsafeMutableBytes(of: &address.sun_path) { buffer in buffer.copyBytes(from: bytes) }
     address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
     let result = withUnsafePointer(to: &address) { pointer in pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-    guard result == 0 else { Darwin.close(fd); throw VPNError("无法连接 VPN 控制接口。") }
+    guard result == 0 else { let reason = errno; Darwin.close(fd); if reason == ECONNREFUSED || reason == ENOENT { return nil }; throw VPNError("无法连接 VPN 控制接口。") }
+    var peerUID: uid_t = 0, peerGID: gid_t = 0
+    guard getpeereid(fd, &peerUID, &peerGID) == 0, peerUID == 0 else { Darwin.close(fd); throw VPNError("后台服务身份验证失败。") }
     var noSignal: Int32 = 1; _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
     return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 }
@@ -67,6 +69,7 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
     private var reader: Task<Void, Never>?
     private var stopped = false
     private var cleanupFailed = false
+    private var failureMessage: String?
     private var activeID = UUID()
     private func publish(_ state: String, _ detail: String) { self.state = state; self.detail = detail; onChange?() }
     func start(host: String, port: Int, sessionID: String, mode: String, socksPort: Int, httpPort: Int) async throws {
@@ -76,23 +79,34 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
         let data = try Data(contentsOf: helper); let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let expected = try String(contentsOf: resources.appendingPathComponent("bin/mchip-vpn-helper.sha256"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         guard hash == expected else { throw VPNError("VPN 组件校验失败。") }
-        self.mode = mode; stopped = false; cleanupFailed = false; let id = UUID(); activeID = id
+        self.mode = mode; stopped = false; cleanupFailed = false; failureMessage = nil; let id = UUID(); activeID = id
         publish("connecting", mode == "tun" ? "等待管理员授权…" : "正在连接…")
         let host = host.hasPrefix("[") ? String(host.dropFirst().dropLast()) : host
         var config: [String: Any] = ["server": "\(host.contains(":") ? "[\(host)]" : host):\(port)", "sessionId": sessionID, "mode": mode]
         if mode == "proxy" { guard (1024...65535).contains(socksPort), (1024...65535).contains(httpPort), socksPort != httpPort else { publish("disconnected", "代理端口无效"); throw VPNError("代理端口必须不同且为 1024 至 65535。") }; config["socksPort"] = socksPort; config["httpPort"] = httpPort }
         do {
             if mode == "tun" {
-                let uid = getuid(); let path = "/var/run/mchip-vpn/\(uid)-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()).sock"
-                let script = try helperInstallScript(source: helper.path, hash: hash, socket: path, uid: uid)
-                let authorization = Process(); authorization.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); authorization.arguments = ["-e", "do shell script \(appleQuote(script)) with administrator privileges"]
-                authorization.standardOutput = FileHandle.nullDevice; authorization.standardError = FileHandle.nullDevice
-                try authorization.run(); process = authorization
+                let uid = getuid(); let path = "/var/run/mchip-vpn/\(uid)-service.sock"
+                let broker = resources.appendingPathComponent("bin/mchip-vpn-broker")
+                let brokerHash = SHA256.hash(data: try Data(contentsOf: broker)).map { String(format: "%02x", $0) }.joined()
+                let brokerExpected = try String(contentsOf: resources.appendingPathComponent("bin/mchip-vpn-broker.sha256"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard brokerHash == brokerExpected else { throw VPNError("后台服务组件校验失败。") }
+                let identity = try clientCodeHash()
+                if !serviceInstalled(uid: uid, client: identity, helper: hash, broker: brokerHash) {
+                    let script = try serviceInstallScript(helper: helper.path, helperHash: hash, broker: broker.path, brokerHash: brokerHash, clientHash: identity, uid: uid)
+                    let authorization = Process(); authorization.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); authorization.arguments = ["-e", "do shell script \(appleQuote(script)) with administrator privileges"]
+                    authorization.standardOutput = FileHandle.nullDevice; authorization.standardError = FileHandle.nullDevice
+                    try authorization.run(); process = authorization
+                } else { publish("connecting", "正在复用已授权的后台服务…") }
                 let deadline = Date().addingTimeInterval(180)
+                if let installer = process {
+                    while installer.isRunning && Date() < deadline { try Task.checkCancellation(); try await Task.sleep(nanoseconds: 100_000_000) }
+                    guard !installer.isRunning, installer.terminationStatus == 0 else { throw VPNError("管理员授权或后台服务安装失败。") }
+                }
                 while socket == nil && Date() < deadline {
                     guard activeID == id, state == "connecting", !Task.isCancelled else { throw CancellationError() }
                     if let handle = try connectSocket(path, uid: uid) { socket = handle; writer = handle; break }
-                    if !authorization.isRunning { throw VPNError("管理员授权或 VPN 组件启动失败。") }
+                    if let process, !process.isRunning, process.terminationStatus != 0 { throw VPNError("管理员授权或后台服务安装失败。") }
                     try await Task.sleep(nanoseconds: 100_000_000)
                 }
                 guard socket != nil else { throw VPNError("管理员授权或控制接口等待超时，请重试。") }
@@ -126,7 +140,7 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
     private func receive(_ data: Data, id: UUID) {
         guard activeID == id, let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = event["event"] as? String else { return }
         if name == "stopped" { stopped = true; return }
-        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", Self.message(code)); return }
+        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; failureMessage = Self.message(code); cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", Self.message(code)); return }
         if state == "stopping" { return }
         if name == "stage" { publish("connecting", "正在建立 VPN 隧道…") }
         else if name == "ready" && state == "connecting" {
@@ -138,7 +152,7 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
     private func ended(id: UUID) {
         guard activeID == id else { return }
         if mode == "tun" && !stopped { cleanupFailed = true }
-        if state != "stopping" { publish("disconnected", cleanupFailed ? Self.message("CLEANUP_FAILED") : "VPN 连接已结束。") }
+        if state != "stopping" { publish("disconnected", failureMessage ?? (cleanupFailed ? "VPN 后台控制连接中断；请检查网络配置后重试。" : "VPN 连接已结束。")) }
     }
     func stop() async throws {
         guard socket != nil || process != nil else { if state != "disconnected" { publish("disconnected", "未连接") }; return }
@@ -161,7 +175,7 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
         if cleanupFailed { throw VPNError(Self.message("CLEANUP_FAILED")) }
     }
     static func message(_ code: String) -> String {
-        let messages = ["CONFIG_FAILED": "无法获取 VPN 资源配置。", "RESOURCE_FETCH_FAILED": "网关未返回资源列表。", "DNS_ROUTING_UNAVAILABLE": "网关未提供可用内网路由或 DNS。", "DNS_DOMAIN_LIMIT": "网关分流域名数量超过限制。", "AUTH_FAILED": "隧道认证失败，请重新登录。", "TLS_CERT_INVALID": "网关证书验证失败。", "CLEANUP_FAILED": "未能确认网络配置恢复，请检查系统路由和 DNS 后再连接。", "ROUTE_FAILED": "内网路由配置失败。", "DNS_CONFLICT": "内网 DNS 配置冲突。", "PERMISSION_DENIED": "管理员授权未完成。", "TUN_UNAVAILABLE": "无法启动系统 TUN。", "CONNECT_FAILED": "无法连接 VPN 隧道，请检查端口。"]
+        let messages = ["TUN_BUSY": "已有 VPN 隧道在运行，请先断开旧客户端。", "CONFIG_FAILED": "无法获取 VPN 资源配置。", "RESOURCE_FETCH_FAILED": "网关未返回资源列表。", "DNS_ROUTING_UNAVAILABLE": "网关未提供可用内网路由或 DNS。", "DNS_DOMAIN_LIMIT": "网关分流域名数量超过限制。", "AUTH_FAILED": "隧道认证失败，请重新登录。", "TLS_CERT_INVALID": "网关证书验证失败。", "CLEANUP_FAILED": "未能确认网络配置恢复，请检查系统路由和 DNS 后再连接。", "ROUTE_FAILED": "内网路由配置失败。", "DNS_CONFLICT": "内网 DNS 配置冲突。", "PERMISSION_DENIED": "管理员授权未完成。", "TUN_UNAVAILABLE": "无法启动系统 TUN。", "CONNECT_FAILED": "无法连接 VPN 隧道，请检查端口。"]
         return messages[code] ?? "VPN 连接失败（\(code)）。"
     }
 }

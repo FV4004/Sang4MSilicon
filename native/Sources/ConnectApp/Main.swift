@@ -22,7 +22,9 @@ import SwiftUI
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu(); menu.delegate = self; statusItem.menu = menu
         updateStatus(); showInterface()
-        if ProcessInfo.processInfo.arguments.contains("--ui-smoke") {
+        if ProcessInfo.processInfo.arguments.contains("--service-smoke") {
+            Task { do { try await persistentServiceSmoke(); self.requestQuit() } catch { FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8)); exit(1) } }
+        } else if ProcessInfo.processInfo.arguments.contains("--ui-smoke") {
             Task {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 smokeTrace("smoke task running")

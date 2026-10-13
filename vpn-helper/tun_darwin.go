@@ -523,3 +523,58 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		return nil
 	}
 }
+
+// The root broker verifies the requesting application's live code identity.
+// Each session gets a separate worker; closing stdin triggers network cleanup.
+func tunStdio() error {
+	if os.Geteuid() != 0 {
+		return errors.New("root required")
+	}
+	if e := secureDirectory(stateDir); e != nil {
+		return e
+	}
+	if e := secureDirectory(socketDir); e != nil {
+		return e
+	}
+	lock, e := os.OpenFile(socketDir+"/active.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if e != nil {
+		return e
+	}
+	defer lock.Close()
+	if e = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
+		fail("TUN_BUSY")
+		return e
+	}
+	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 1024), 8192)
+	var c config
+	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &c) != nil {
+		fail("UNSUPPORTED_SESSION")
+		return errors.New("invalid config")
+	}
+	if c.Mode == "recover" {
+		if e = secureDirectory(resolverDir); e == nil {
+			e = cleanupLease(resolverDir, stateDir+"/resolver-lease.json")
+		}
+		if e != nil {
+			fail("CLEANUP_FAILED")
+			return e
+		}
+		emit(map[string]string{"event": "stopped"})
+		return nil
+	}
+	if validate(c) != nil || c.Mode != "tun" {
+		fail("UNSUPPORTED_SESSION")
+		return errors.New("invalid config")
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	go func() { scanner.Scan(); cancel() }()
+	e = runNativeTun(ctx, c, "service-"+strconv.Itoa(os.Getpid()))
+	c.SessionID = ""
+	if e == nil {
+		emit(map[string]string{"event": "stopped"})
+	}
+	return e
+}

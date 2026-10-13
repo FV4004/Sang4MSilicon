@@ -124,16 +124,13 @@ struct VPNConnectionRequest {
                 preferences.set(server, forKey: "server"); preferences.set(username, forKey: "username")
                 if rememberPassword { do { try PasswordStore.save(password, server: server, username: username) } catch { loginMessage += " " + error.localizedDescription; loginTone = .warning } }
                 captcha = ""; response = ""; captchaImage = nil
-                mode = "tun"
-                do { try await startVPN() } catch {
-                    try Task.checkCancellation()
-                    message = "认证成功，自动连接 TUN 失败：" + error.localizedDescription
-                }
+                // Load portal configuration before establishing the data tunnel,
+                // matching the sequence used by the previously stable client.
+                do { try await fetchResources() } catch { try Task.checkCancellation(); message += " 资源列表加载失败：" + error.localizedDescription }
                 try Task.checkCancellation()
-                do { try await fetchResources() } catch {
-                    try Task.checkCancellation()
-                    message += " 资源列表加载失败：" + error.localizedDescription
-                }
+                mode = "tun"
+                do { try await startVPN() } catch { try Task.checkCancellation(); message = "认证成功，自动连接 TUN 失败：" + error.localizedDescription }
+
             }
         }
     }

@@ -219,6 +219,12 @@ func run(c config) error {
 	}
 }
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--tun-stdio" {
+		if tunStdio() != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--tun-control" {
 		if tunControl(os.Args[2:]) != nil {
 			os.Exit(1)
