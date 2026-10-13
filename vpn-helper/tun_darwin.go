@@ -325,6 +325,12 @@ func (t *routeTable) add(p netip.Prefix) error {
 	return nil
 }
 func runNativeTun(ctx context.Context, c config, tag string) (result error) {
+	defer func() {
+		if recover() != nil {
+			fail("WORKER_PANIC")
+			result = errors.New("worker panic")
+		}
+	}()
 	log.SetOutput(io.Discard)
 	journal := stateDir + "/resolver-lease.json"
 	if e := secureDirectory(resolverDir); e != nil {
@@ -472,6 +478,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}
 	errs := make(chan error, 2)
 	go func() {
+		defer reportPacketWorkerPanic(errs)
 		buf := make([]byte, 65539)
 		for {
 			n, e := device.Read(buf)
@@ -498,6 +505,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 	}()
 	go func() {
+		defer reportPacketWorkerPanic(errs)
 		buf := make([]byte, 65535)
 		for {
 			p, e := readIPv4(recv, buf)
@@ -518,8 +526,12 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-errs:
-		fail("TUNNEL_FAILED")
+	case err := <-errs:
+		if errors.Is(err, errPacketWorkerPanic) {
+			fail("WORKER_PANIC")
+		} else {
+			fail("TUNNEL_FAILED")
+		}
 		return nil
 	}
 }
@@ -531,13 +543,16 @@ func tunStdio() error {
 		return errors.New("root required")
 	}
 	if e := secureDirectory(stateDir); e != nil {
+		fail("STATE_DIRECTORY_UNSAFE")
 		return e
 	}
 	if e := secureDirectory(socketDir); e != nil {
+		fail("CONTROL_DIRECTORY_UNSAFE")
 		return e
 	}
 	lock, e := os.OpenFile(socketDir+"/active.lock", os.O_CREATE|os.O_RDWR, 0600)
 	if e != nil {
+		fail("TUN_LOCK_FAILED")
 		return e
 	}
 	defer lock.Close()

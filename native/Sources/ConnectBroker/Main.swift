@@ -24,6 +24,10 @@ func secure(_ path: String, directory: Bool = false) throws {
     guard lstat(path, &value) == 0, value.st_uid == 0, value.st_mode & 0o022 == 0,
           value.st_mode & S_IFMT == (directory ? S_IFDIR : S_IFREG) else { throw NSError(domain: "ServicePermissions", code: 1) }
 }
+func sendEvent(_ fd: Int32, _ event: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: event) else { return }
+    try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).write(contentsOf: data + Data([10]))
+}
 func serve(_ fd: Int32, helper: String) {
     let client = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     var timeout = timeval(tv_sec: 20, tv_usec: 0)
@@ -32,21 +36,24 @@ func serve(_ fd: Int32, helper: String) {
     let child = Process(), input = Pipe(), output = Pipe()
     child.executableURL = URL(fileURLWithPath: helper); child.arguments = ["--tun-stdio"]
     child.standardInput = input; child.standardOutput = output; child.standardError = FileHandle.nullDevice
-    do { try child.run() } catch { return }
+    do { try child.run() } catch { sendEvent(fd, ["event": "error", "code": "WORKER_START_FAILED"]); return }
     let done = DispatchGroup(); done.enter()
     DispatchQueue.global().async {
         defer { _ = Darwin.shutdown(fd, SHUT_RDWR); done.leave() }
         var bytes = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = Darwin.read(output.fileHandleForReading.fileDescriptor, &bytes, bytes.count)
+            if n < 0 && errno == EINTR { continue }
             if n <= 0 { break }
             do { try client.write(contentsOf: Data(bytes.prefix(n))) } catch { break }
         }
+        child.waitUntilExit()
+        sendEvent(fd, ["event": "workerExit", "status": Int(child.terminationStatus), "reason": child.terminationReason == .uncaughtSignal ? "signal" : "exit"])
     }
     // Only a bounded configuration line followed by a stop line is accepted.
     var buffer = Data(); var configurationSent = false; var invalid = false; var bytes = [UInt8](repeating: 0, count: 4096)
     while true {
-        let n = Darwin.read(fd, &bytes, bytes.count); if n <= 0 { break }
+        let n = Darwin.read(fd, &bytes, bytes.count); if n < 0 && errno == EINTR { continue }; if n <= 0 { break }
         buffer.append(contentsOf: bytes.prefix(n)); if buffer.count > 8192 { break }
         while let end = buffer.firstIndex(of: 10) {
             let line = Data(buffer[..<end]); buffer.removeSubrange(...end)
@@ -61,11 +68,12 @@ func serve(_ fd: Int32, helper: String) {
         if invalid { break }
     }
     try? input.fileHandleForWriting.close() // EOF cancels the worker and restores its routes/DNS.
-    child.waitUntilExit(); done.wait()
+    done.wait()
     try? output.fileHandleForReading.close()
 }
 @main struct Broker {
     static func main() {
+        _ = Darwin.signal(SIGPIPE, SIG_IGN) // A dead worker pipe must not terminate the service.
         let args = CommandLine.arguments
         guard geteuid() == 0, args.count == 4, let uid = uid_t(args[1]), uid > 0,
               args[2].range(of: "^[a-f0-9]{40}$", options: .regularExpression) != nil,
@@ -85,7 +93,8 @@ func serve(_ fd: Int32, helper: String) {
         while true {
             let fd = Darwin.accept(listener, nil, nil); if fd < 0 { if errno == EINTR { continue }; exit(73) }
             var noSignal: Int32 = 1; _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-            guard trusted(fd, uid: uid, hash: args[2]) else { Darwin.close(fd); continue }
+            guard trusted(fd, uid: uid, hash: args[2]) else { sendEvent(fd, ["event": "error", "code": "SERVICE_IDENTITY_REJECTED"]); Darwin.close(fd); continue }
+            sendEvent(fd, ["event": "service", "code": "SERVICE_READY"])
             // Sequential workers retain the existing global TUN lock and cleanup protocol.
             serve(fd, helper: args[3])
         }

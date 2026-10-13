@@ -41,10 +41,10 @@ jobs:
       - name: Verify source provenance and archive
         run: |
           set -euo pipefail
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.7-source.zip
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.8-source.zip
           cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
-          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.7-mac-universal.zip
+          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.8-mac-universal.zip
           cd dist-native
           shasum -a 256 *.zip *-source.tar.gz build-info.json > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -75,4 +75,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          gh release create v0.5.0-beta.7 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title 'Connect v0.5.0-beta.7 · Swift native Universal' --notes 'Fixes closed control-socket reuse after VPN failure so subsequent connections and cleanup can proceed. Adds Restore Network Configuration before and after authentication; recovery uses the authorized service and conservatively restores only this app-owned DNS entries. Preserves tunnel failure messages and restores disconnected state. Production-controller smoke covers repeated recovery, a loopback-only failed tunnel, and recovery afterwards, plus Swift/Go tests, UTUN, Universal architecture/signature and UI smoke. Same-version administrator authorization reuse retained. Real gateway failure conditions require installation testing. Universal macOS 13+, ad-hoc signed without Developer ID or notarization. AGPL source included.' dist-native/*.zip dist-native/*-source.tar.gz dist-native/build-info.json dist-native/SHA256SUMS.txt
+          gh release create v0.5.0-beta.8 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title 'Connect v0.5.0-beta.8 · Swift native Universal' --notes 'Adds an authenticated broker handshake before session transfer, worker exit status/signal and last-stage diagnostics, and an explicitly authorized Repair Background Service action. Broken worker pipes no longer terminate the broker with SIGPIPE. Packet-worker panics become tunnel errors with cleanup; early root-helper failures report fixed diagnostic codes. No credentials, panic values or packet contents are logged. Network recovery and same-version service reuse remain. Automated Swift/Go regressions, recovery/failure service smoke, UTUN and Universal UI/signature checks passed. Real gateway cause remains unconfirmed until installation testing. Universal macOS 13+, ad-hoc signed without Developer ID or notarization; AGPL source included.' dist-native/*.zip dist-native/*-source.tar.gz dist-native/build-info.json dist-native/SHA256SUMS.txt

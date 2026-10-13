@@ -45,6 +45,39 @@ final class RegressionTests: XCTestCase {
             XCTAssertEqual(controller.detail, VPNController.message("TUNNEL_FAILED"))
         }
     }
+    func testBrokerHandshakeHandlesFragmentationAndIdentityRejection() async throws {
+        for accepted in [true, false] {
+            var fds: [Int32] = [0, 0]
+            XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+            let control = FileHandle(fileDescriptor: fds[0], closeOnDealloc: true)
+            let peer = FileHandle(fileDescriptor: fds[1], closeOnDealloc: true)
+            defer { try? control.close(); try? peer.close() }
+            let message = accepted ? "{\"event\":\"service\",\"code\":\"SERVICE_READY\"}\n" : "{\"event\":\"error\",\"code\":\"SERVICE_IDENTITY_REJECTED\"}\n"
+            let bytes = Data(message.utf8)
+            let sender = Task.detached {
+                try peer.write(contentsOf: bytes.prefix(10))
+                try await Task.sleep(nanoseconds: 20_000_000)
+                try peer.write(contentsOf: bytes.dropFirst(10))
+            }
+            do { try await brokerHandshake(control); XCTAssertTrue(accepted) }
+            catch { XCTAssertFalse(accepted); XCTAssertTrue(error.localizedDescription.contains("拒绝当前应用身份")) }
+            try await sender.value
+        }
+    }
+    @MainActor func testWorkerExitPreservesStatusAndLastStage() async throws {
+        var fds: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+        let control = FileHandle(fileDescriptor: fds[0], closeOnDealloc: true)
+        let peer = FileHandle(fileDescriptor: fds[1], closeOnDealloc: true)
+        defer { try? peer.close() }
+        let controller = VPNController()
+        controller.monitor(control, writer: control, mode: "tun", id: UUID())
+        try peer.write(contentsOf: Data("{\"event\":\"stage\",\"stage\":\"tunnel\"}\n{\"event\":\"workerExit\",\"reason\":\"signal\",\"status\":9}\n".utf8))
+        _ = Darwin.shutdown(peer.fileDescriptor, SHUT_WR)
+        for _ in 0..<100 { if controller.state == "disconnected" { break }; try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertEqual(controller.state, "disconnected")
+        XCTAssertTrue(controller.detail.contains("信号 9")); XCTAssertTrue(controller.detail.contains("建立数据隧道"))
+    }
     @MainActor func testTypingNeverStartsValidationAndFocusLossDoes() async throws {
         let suite = "ConnectInputTest-" + UUID().uuidString
         let preferences = UserDefaults(suiteName: suite)!

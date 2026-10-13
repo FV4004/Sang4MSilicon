@@ -158,6 +158,9 @@ struct VPNConnectionRequest {
         guard authenticated, !shuttingDown, let auth, let host = auth.base.host, let port = Int(tunnelPort), (1...65535).contains(port) else { throw VPNError("隧道端口或认证会话无效。") }
         try await vpnConnector(VPNConnectionRequest(host: host, port: port, sessionID: auth.twfid, mode: mode, socksPort: Int(socksPort) ?? 0, httpPort: Int(httpPort) ?? 0))
     }
+    func repairService() {
+        run { [self] in try await vpn.repairService(); message = "后台服务已修复，网络配置已恢复，可以重新连接。" }
+    }
     func recoverNetwork() {
         run { [self] in try await vpn.recoverNetwork(); message = "网络配置已恢复，可以重新连接 VPN。" }
     }

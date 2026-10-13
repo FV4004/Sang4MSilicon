@@ -468,3 +468,12 @@ func (s *splitDNS) Close() {
 	<-done
 	<-done
 }
+
+var errPacketWorkerPanic = errors.New("packet worker panic")
+
+// Never include panic values: packet contents and session data can be sensitive.
+func reportPacketWorkerPanic(failures chan<- error) {
+	if recover() != nil {
+		failures <- errPacketWorkerPanic
+	}
+}
