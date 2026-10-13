@@ -4,6 +4,9 @@ on:
     branches: ['feature/swift-native']
     tags: ['v0.5.*']
   workflow_dispatch:
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -30,6 +33,7 @@ jobs:
       - name: Build Universal native application
         run: python3 scripts/package-native.py
       - name: Native window and status bar smoke
+        timeout-minutes: 2
         run: dist-native/Connect.app/Contents/MacOS/Connect --ui-smoke
       - name: Verify source provenance and archive
         run: |
@@ -54,7 +58,7 @@ jobs:
           path: dist-native/*-preview.png
   publish:
     needs: native-test-and-package
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-native-beta]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
