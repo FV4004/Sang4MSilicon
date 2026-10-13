@@ -26,7 +26,6 @@ import AppKit
     @Published var tab = 0
     @Published var selectedGroup = ""
     @Published var search = ""
-    @Published var page = 0
     let vpn = VPNController()
     let browser = ResourceBrowser()
     var onStateChange: (() -> Void)?
@@ -123,12 +122,10 @@ import AppKit
         let origin = try gatewayOrigin()
         let data = try await client.request("/por/rclist.csp", origin: origin, headers: ["TWFID": client.twfid, "Cookie": "TWFID=" + client.twfid])
         try Task.checkCancellation(); guard auth === client, authenticated else { return }
-        groups = try parseResources(data); resourceOrigin = origin; selectedGroup = ""; page = 0
+        groups = try parseResources(data); resourceOrigin = origin; selectedGroup = ""
     }
     func refreshResources() { run { [self] in try await fetchResources() } }
-    var filteredResources: [VPNResource] { groups.filter { selectedGroup.isEmpty || $0.id == selectedGroup }.flatMap(\.items).filter { search.isEmpty || ($0.name + " " + $0.hosts.joined(separator: " ")).localizedCaseInsensitiveContains(search) } }
-    var pageCount: Int { max(1, (filteredResources.count + 3) / 4) }
-    var pageItems: [VPNResource] { Array(filteredResources.dropFirst(min(page, pageCount - 1) * 4).prefix(4)) }
+    var filteredResources: [VPNResource] { groups.filter { selectedGroup.isEmpty || $0.id == selectedGroup }.flatMap(\.items).filter { search.isEmpty || ($0.name + " " + $0.hosts.joined(separator: " ") + " " + $0.ports.joined(separator: " ")).localizedCaseInsensitiveContains(search) } }
     func open(_ resource: VPNResource, target: ResourceTarget) {
         run { [self] in guard let auth, authenticated, let origin = resourceOrigin else { throw VPNError("请刷新资源列表。") }; try await browser.open(resource, target: target, auth: auth, origin: origin, tunConnected: vpnState == "connected" && vpn.mode == "tun") }
     }

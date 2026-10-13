@@ -30,12 +30,23 @@ import SwiftUI
                 let titles = self.statusItem.menu?.items.map(\.title) ?? []
                 for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
                 self.window.setContentSize(NSSize(width: 960, height: 800))
+                self.model.requiresCaptcha = true
+                try? await Task.sleep(nanoseconds: 200_000_000)
                 self.capturePreview("login-preview.png")
                 self.model.authenticated = true
-                let fixture = "<Resource><RcGroups><Group id='g' name='演示资源'/></RcGroups><Rcs>" + (1...4).map { "<Rc id='\($0)' name='示例内网资源 \($0)' type='1' rc_grp_id='g' svc='http' host='10.0.0.\($0);10.0.1.\($0)' port='8080~8080;8080~8080'/>" }.joined() + "</Rcs></Resource>"
+                let fixture = "<Resource><RcGroups><Group id='g' name='演示资源'/></RcGroups><Rcs>" + (1...36).map { "<Rc id='\($0)' name='示例内网资源 \($0)' type='1' rc_grp_id='g' svc='http' host='10.0.0.\($0);10.0.1.\($0)' port='8080~8080;8080~8080'/>" }.joined() + "</Rcs></Resource>"
                 self.model.groups = (try? parseResources(Data(fixture.utf8))) ?? []; self.model.tab = 1
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 self.capturePreview("resources-preview.png")
+                guard let scroll = self.resourceScrollView(in: self.window.contentView!), let document = scroll.documentView, document.frame.height > scroll.contentSize.height else { exit(5) }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentSize.height)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard scroll.contentView.bounds.origin.y > 0 else { exit(6) }
+                self.capturePreview("resources-scrolled-preview.png")
+                self.model.tab = 0; self.model.vpnState = "connected"; self.model.vpnDetail = "已连接 · 10.0.0.100 · 内网分流"
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                self.capturePreview("connection-preview.png")
                 let oldChoice = UserDefaults.standard.string(forKey: "closeAction")
                 UserDefaults.standard.set("minimize", forKey: "closeAction")
                 guard !self.windowShouldClose(self.window), self.model.authenticated else { exit(3) }
@@ -43,11 +54,16 @@ import SwiftUI
                 if let oldChoice { UserDefaults.standard.set(oldChoice, forKey: "closeAction") } else { UserDefaults.standard.removeObject(forKey: "closeAction") }
                 smokeTrace("smoke task running")
                 guard self.window.isVisible else { exit(4) }
-                print("Native window, status menu, minimize and restore smoke passed")
+                print("Native window, resource scrolling, status menu, minimize and restore smoke passed")
                 smokeTrace("requesting termination")
                 self.requestQuit()
             }
         } else { model.initialize() }
+    }
+    private func resourceScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView, let document = scroll.documentView, document.frame.height > scroll.contentSize.height + 20 { return scroll }
+        for child in view.subviews { if let found = resourceScrollView(in: child) { return found } }
+        return nil
     }
     private func capturePreview(_ name: String) {
         guard let view = window.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
