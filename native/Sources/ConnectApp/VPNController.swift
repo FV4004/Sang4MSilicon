@@ -150,7 +150,8 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
             if mode == "tun" ? stopped || socket == nil : process?.isRunning != true { break }
             // Before any configuration was sent, terminating authorization is sufficient.
             if socket == nil { if process?.isRunning == true { process?.terminate() }; break }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            // Network cleanup must still yield when its caller was cancelled.
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { continuation.resume() } }
         }
         if mode == "tun", socket != nil, !stopped { cleanupFailed = true }
         if let handle = socket { _ = Darwin.shutdown(handle.fileDescriptor, SHUT_RDWR); try? handle.close() }

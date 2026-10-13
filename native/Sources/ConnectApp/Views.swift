@@ -13,7 +13,7 @@ struct RootView: View {
                     Picker("页面", selection: $model.tab) { Text("连接").tag(0); Text("内网资源").tag(1) }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
                 }
                 if model.tab == 0 { connection; Spacer(minLength: 0) } else { resources }
-                Text(model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("statusMessage")
+                if model.authenticated { Text(model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("statusMessage") }
                 HStack(spacing: 20) { Button("关闭方式", action: closeSettings); Button("退出程序", action: quit); Spacer() }.buttonStyle(.link).font(.caption)
                 Text("仅供开源学习与研究。默认记忆服务器与用户 ID；密码可选保存到钥匙串，会话不保存。").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }.padding(.top, 44).padding(.horizontal, 40).padding(.bottom, 20).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,8 +70,9 @@ struct RootView: View {
                     Button("获取 / 刷新验证码", action: model.initialize).controlSize(.small).disabled(model.busy || model.server.isEmpty)
                 } else { field("后续认证 · 动态验证码或应答") { TextField("输入动态验证码或应答", text: $model.response).textFieldStyle(.roundedBorder).controlSize(.large).disabled(model.busy) } }
                 Button(action: model.login) { Text(model.challenge ? "提交验证" : "登录").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy || !model.ready).keyboardShortcut(.defaultAction)
+                loginFeedback
             } else {
-                Text("认证成功，可以连接 VPN。").font(.callout).foregroundStyle(Color(nsColor: .systemGreen))
+                loginFeedback
                 Button("退出登录会话", action: model.logout).controlSize(.large).disabled(model.busy)
                 Divider().padding(.vertical, 4)
                 HStack { Text("VPN 连接").font(.headline); Spacer(); vpnBadge }
@@ -90,6 +91,16 @@ struct RootView: View {
                 Text("TUN 模式无需单独配置应用代理；断开后恢复本次添加的路由与内网 DNS。").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
+    }
+    private var loginFeedback: some View {
+        let color: Color
+        switch model.loginTone {
+        case .neutral: color = .secondary
+        case .success: color = Color(nsColor: .systemGreen)
+        case .warning: color = Color(nsColor: .systemOrange)
+        case .error: color = Color(nsColor: .systemRed)
+        }
+        return Text(model.loginMessage).font(.callout).foregroundStyle(color).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("loginFeedback")
     }
     private var vpnBadge: some View {
         let connected = model.vpnState == "connected"
@@ -134,20 +145,28 @@ struct StatusBadge: View {
 struct ResourceCard: View {
     let item: VPNResource; let group: String; let busy: Bool; let height: CGFloat; let open: (ResourceTarget) -> Void
     @State private var selection = 0
+    @State private var copied = false
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(group).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-            Text(item.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).help(item.name)
-            Text("地址：" + item.hosts.joined(separator: "；")).font(.system(size: 11)).lineLimit(2).textSelection(.enabled).help(item.hosts.joined(separator: "；"))
+            Text(item.name).font(.system(size: 12, weight: .semibold)).lineLimit(2).help(item.name)
             Text("端口：" + (item.ports.isEmpty ? "默认" : item.ports.joined(separator: "；"))).font(.system(size: 11)).lineLimit(1).textSelection(.enabled).help(item.ports.joined(separator: "；"))
             Spacer(minLength: 0)
             if item.targets.isEmpty { Text(item.reason).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
-            else {
-                HStack(spacing: 6) {
-                    if item.targets.count > 1 { Picker("访问地址", selection: $selection) { ForEach(item.targets) { Text($0.label).tag($0.id) } }.labelsHidden().controlSize(.small) }
+            HStack(spacing: 6) {
+                if item.copyTargets.count > 1 { Picker("选择网址", selection: $selection) { ForEach(Array(item.copyTargets.enumerated()), id: \.element.id) { offset, target in Text("网址 \(offset + 1)").tag(target.id) } }.labelsHidden().controlSize(.small) }
+                if !item.targets.isEmpty {
                     Button(item.gateway ? "网关 Web" : "浏览器访问") { if let target = item.targets.first(where: { $0.id == selection }) ?? item.targets.first { open(target) } }.buttonStyle(.borderedProminent).controlSize(.small).disabled(busy)
                 }
+                Spacer(minLength: 0)
+                Button {
+                    guard let value = resourceCopyValue(item, index: selection) else { return }
+                    NSPasteboard.general.clearContents()
+                    copied = NSPasteboard.general.setString(value, forType: .string)
+                    Task { try? await Task.sleep(nanoseconds: 2_000_000_000); copied = false }
+                } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc").foregroundStyle(copied ? Color(nsColor: .systemGreen) : .accentColor) }.buttonStyle(.borderless).help(copied ? "已复制" : "复制网址").accessibilityLabel("复制网址").disabled(resourceCopyValue(item, index: selection) == nil)
             }
+
         }.padding(10).frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay { RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5) }
     }
 }

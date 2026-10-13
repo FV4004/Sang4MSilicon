@@ -1,6 +1,10 @@
 import SwiftUI
 import AppKit
 
+enum FeedbackTone { case neutral, success, warning, error }
+struct VPNConnectionRequest {
+    let host: String; let port: Int; let sessionID: String; let mode: String; let socksPort: Int; let httpPort: Int
+}
 @MainActor final class AppModel: ObservableObject {
     @Published var server = ""
     @Published var username = ""
@@ -11,6 +15,8 @@ import AppKit
     @Published var requiresCaptcha = false
     @Published var response = ""
     @Published var message = "输入服务器地址，连接你的网络。"
+    @Published var loginMessage = "输入服务器地址，连接你的网络。"
+    @Published var loginTone: FeedbackTone = .neutral
     @Published var busy = false
     @Published private(set) var preparingServer = false
     @Published var authenticated = false
@@ -26,7 +32,7 @@ import AppKit
     @Published var tab = 0
     @Published var selectedGroup = ""
     @Published var search = ""
-    let vpn = VPNController()
+    let vpn: VPNController
     let browser = ResourceBrowser()
     var onStateChange: (() -> Void)?
     var showWindow: (() -> Void)?
@@ -36,22 +42,27 @@ import AppKit
     private var serverEditing = false
     private let preferences: UserDefaults
     private let authFactory: (String) throws -> AuthClient
+    private let vpnConnector: (VPNConnectionRequest) async throws -> Void
     private var shuttingDown = false
     private let shutdownCoordinator = ShutdownCoordinator()
     private var resourceOrigin: URL?
-    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil) {
+    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil, vpnConnector: ((VPNConnectionRequest) async throws -> Void)? = nil) {
         self.preferences = preferences; self.authFactory = authFactory ?? { try AuthClient($0) }
+        let controller = VPNController(); self.vpn = controller
+        self.vpnConnector = vpnConnector ?? { request in try await controller.start(host: request.host, port: request.port, sessionID: request.sessionID, mode: request.mode, socksPort: request.socksPort, httpPort: request.httpPort) }
         server = preferences.string(forKey: "server") ?? ""
         username = preferences.string(forKey: "username") ?? ""
-        rememberPassword = preferences.bool(forKey: "rememberPassword")
-        if rememberPassword { password = PasswordStore.load(server: server, username: username) }
+        // Every launch starts with password memory off, including upgrades from an
+        // older persisted opt-in. Stored entries are read only after explicit opt-in.
+        rememberPassword = false
+        preferences.removeObject(forKey: "rememberPassword")
         vpn.onChange = { [weak self] in guard let self else { return }; self.vpnState = self.vpn.state; self.vpnDetail = self.vpn.detail; self.onStateChange?() }
     }
     private func run(_ work: @escaping () async throws -> Void) {
         guard !busy, !shuttingDown else { return }; busy = true; onStateChange?()
         operation = Task { [weak self] in
             guard let self else { return }
-            do { try await work() } catch is CancellationError {} catch { if !self.shuttingDown && !Task.isCancelled { self.message = error.localizedDescription } }
+            do { try await work() } catch is CancellationError {} catch { if !self.shuttingDown && !Task.isCancelled { self.message = error.localizedDescription; if !self.authenticated { self.loginMessage = error.localizedDescription; self.loginTone = .error } } }
             self.busy = false; self.operation = nil; self.onStateChange?()
         }
     }
@@ -77,7 +88,8 @@ import AppKit
         }
     }
     func rememberChanged() {
-        preferences.set(rememberPassword, forKey: "rememberPassword")
+        preferences.removeObject(forKey: "rememberPassword")
+        if rememberPassword && password.isEmpty { password = PasswordStore.load(server: server, username: username) }
         if !rememberPassword { do { try PasswordStore.save(nil, server: server, username: username) } catch { message = error.localizedDescription } }
     }
     func initialize() {
@@ -93,7 +105,7 @@ import AppKit
             guard auth === client, server == requestedServer, !shuttingDown else { return }
             requiresCaptcha = client.captchaRequired
             if let image { guard let decoded = NSImage(data: image) else { throw VPNError("服务器未返回有效验证码图片。") }; captchaImage = decoded }
-            ready = true; message = "请输入账号、密码\(requiresCaptcha ? "和验证码" : "")。"
+            ready = true; message = "请输入账号、密码\(requiresCaptcha ? "和验证码" : "")。"; loginMessage = message; loginTone = .neutral
         }
     }
     func refreshCaptcha() {
@@ -101,15 +113,27 @@ import AppKit
         run { [self] in guard let auth else { throw VPNError("请初始化登录。") }; let image = try await auth.captcha(); try Task.checkCancellation(); guard let decoded = NSImage(data: image) else { throw VPNError("验证码图片无效。") }; captchaImage = decoded; captcha = "" }
     }
     func login() {
+        guard !busy, !shuttingDown else { return }
+        loginMessage = "正在认证…"; loginTone = .neutral
         run { [self] in
             guard let client = auth, ready else { throw VPNError("请先获取登录配置。") }
             message = challenge ? try await client.submitChallenge(response) : try await client.login(username: username, password: password, captcha: captcha)
             try Task.checkCancellation(); authenticated = client.authenticated; challenge = !client.challenge.isEmpty
+            loginMessage = message; loginTone = authenticated ? .success : .neutral
             if authenticated {
-                preferences.set(server, forKey: "server"); preferences.set(username, forKey: "username"); preferences.set(rememberPassword, forKey: "rememberPassword")
-                if rememberPassword { do { try PasswordStore.save(password, server: server, username: username) } catch { message += " " + error.localizedDescription } }
+                preferences.set(server, forKey: "server"); preferences.set(username, forKey: "username")
+                if rememberPassword { do { try PasswordStore.save(password, server: server, username: username) } catch { loginMessage += " " + error.localizedDescription; loginTone = .warning } }
                 captcha = ""; response = ""; captchaImage = nil
-                do { try await fetchResources() } catch { message = "认证成功；资源列表加载失败：" + error.localizedDescription }
+                mode = "tun"
+                do { try await startVPN() } catch {
+                    try Task.checkCancellation()
+                    message = "认证成功，自动连接 TUN 失败：" + error.localizedDescription
+                }
+                try Task.checkCancellation()
+                do { try await fetchResources() } catch {
+                    try Task.checkCancellation()
+                    message += " 资源列表加载失败：" + error.localizedDescription
+                }
             }
         }
     }
@@ -131,7 +155,11 @@ import AppKit
     }
     func connect() {
         guard authenticated else { showWindow?(); message = "请先完成账号认证。"; return }
-        run { [self] in guard let auth, let host = auth.base.host, let port = Int(tunnelPort) else { throw VPNError("隧道端口无效。") }; try await vpn.start(host: host, port: port, sessionID: auth.twfid, mode: mode, socksPort: Int(socksPort) ?? 0, httpPort: Int(httpPort) ?? 0) }
+        run { [self] in try await startVPN() }
+    }
+    private func startVPN() async throws {
+        guard authenticated, !shuttingDown, let auth, let host = auth.base.host, let port = Int(tunnelPort), (1...65535).contains(port) else { throw VPNError("隧道端口或认证会话无效。") }
+        try await vpnConnector(VPNConnectionRequest(host: host, port: port, sessionID: auth.twfid, mode: mode, socksPort: Int(socksPort) ?? 0, httpPort: Int(httpPort) ?? 0))
     }
     func disconnect() {
         if busy && vpnState != "disconnected" {
@@ -145,7 +173,7 @@ import AppKit
         do { try await vpn.stop() } catch { errors.append(error.localizedDescription) }
         let client = auth; auth = nil
         do { try await client?.logout() } catch { errors.append("网关注销未确认：" + error.localizedDescription) }
-        authenticated = false; ready = false; challenge = false; groups = []; resourceOrigin = nil; tab = 0; message = "登录会话已清除。"
+        authenticated = false; ready = false; challenge = false; groups = []; resourceOrigin = nil; tab = 0; message = "登录会话已清除。"; loginMessage = message; loginTone = .neutral
         if !errors.isEmpty { throw VPNError(errors.joined(separator: "\n")) }
     }
     func shutdown() async -> String? {

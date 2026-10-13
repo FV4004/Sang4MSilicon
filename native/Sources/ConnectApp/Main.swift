@@ -30,6 +30,7 @@ import SwiftUI
                 let titles = self.statusItem.menu?.items.map(\.title) ?? []
                 for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
                 self.window.setContentSize(NSSize(width: 960, height: 800))
+                self.model.loginMessage = "认证失败，请刷新验证码后重试。"; self.model.loginTone = .error
                 self.model.requiresCaptcha = true
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 self.capturePreview("login-preview.png")
@@ -44,6 +45,7 @@ import SwiftUI
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard scroll.contentView.bounds.origin.y > 0 else { exit(6) }
                 self.capturePreview("resources-scrolled-preview.png")
+                self.model.loginMessage = "认证成功，已自动连接系统 TUN。"; self.model.loginTone = .success
                 self.model.tab = 0; self.model.vpnState = "connected"; self.model.vpnDetail = "已连接 · 10.0.0.100 · 内网分流"
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 self.capturePreview("connection-preview.png")

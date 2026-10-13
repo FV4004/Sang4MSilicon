@@ -3,7 +3,7 @@
 from pathlib import Path
 import hashlib, json, os, plistlib, shutil, subprocess
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.5.0-beta.4'
+VERSION = '0.5.0-beta.5'
 DIST = ROOT / 'dist-native'
 APP = DIST / 'Connect.app'
 def run(*args, cwd=ROOT, env=None):
@@ -18,7 +18,7 @@ for arch, goarch in [('arm64', 'arm64'), ('x86_64', 'amd64')]:
     run('go', 'build', '-trimpath', '-o', str(DIST / f'helper-{arch}'), '.', cwd=ROOT / 'vpn-helper', env={**os.environ, 'GOOS': 'darwin', 'GOARCH': goarch, 'CGO_ENABLED': '0'})
 run('lipo', '-create', str(DIST / 'Connect-arm64'), str(DIST / 'Connect-x86_64'), '-output', str(mac / 'Connect'))
 run('lipo', '-create', str(DIST / 'helper-arm64'), str(DIST / 'helper-x86_64'), '-output', str(binaries / 'mchip-vpn-helper'))
-info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native', 'CFBundleName': 'Connect', 'CFBundleDisplayName': '连接你的网络', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5004', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native', 'CFBundleName': 'Connect', 'CFBundleDisplayName': '连接你的网络', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5005', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-helper'))
 (binaries / 'mchip-vpn-helper.sha256').write_text(hashlib.sha256((binaries / 'mchip-vpn-helper').read_bytes()).hexdigest() + '\n')

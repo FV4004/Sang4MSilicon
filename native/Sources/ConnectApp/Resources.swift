@@ -3,7 +3,7 @@ import Foundation
 struct ResourceTarget: Identifiable { let id: Int; let label: String; let url: URL }
 struct VPNResource: Identifiable {
     let id: String; let name: String; let groupID: String; let gateway: Bool
-    let hosts: [String]; let ports: [String]; let targets: [ResourceTarget]; let reason: String; let disguise: Bool
+    let hosts: [String]; let ports: [String]; let targets: [ResourceTarget]; let copyTargets: [ResourceTarget]; let reason: String; let disguise: Bool
 }
 struct ResourceGroup: Identifiable { let id: String; let name: String; var items: [VPNResource] }
 func webURL(_ input: String, service: String = "http", port: Int? = nil) -> URL? {
@@ -47,8 +47,8 @@ func parseResources(_ data: Data) throws -> [ResourceGroup] {
             if value.contains("://"), let u = URLComponents(string: value), let host = u.host { return host + (u.port.map { ":\($0)" } ?? "") }
             return value.components(separatedBy: CharacterSet(charactersIn: "?#")).first ?? value
         }
-        var targets: [ResourceTarget] = []
-        if supported && !sso {
+        var targets: [ResourceTarget] = []; var copyTargets: [ResourceTarget] = []
+        if supported {
             for (index, host) in hosts.enumerated() {
                 guard let original = webURL(host, service: service) else { continue }
                 let range = index < ports.count && !ports[index].isEmpty ? ports[index] : ports.first ?? ""
@@ -60,11 +60,17 @@ func parseResources(_ data: Data) throws -> [ResourceGroup] {
                     else if min == max && min > 0 { selectedPort = min }
                     else { let preferred = original.scheme == "https" ? 443 : 80; guard (min...max).contains(preferred) else { continue }; selectedPort = preferred }
                 }
-                if let url = webURL(host, service: service, port: selectedPort) { targets.append(ResourceTarget(id: index, label: labels[index], url: url)) }
+                if let url = webURL(host, service: service, port: selectedPort) { let target = ResourceTarget(id: index, label: labels[index], url: url); copyTargets.append(target); if !sso { targets.append(target) } }
             }
         }
-        let item = VPNResource(id: "resource-\(ordinal)", name: String((a["name"] ?? "未命名资源").prefix(256)), groupID: groupID, gateway: type == 0, hosts: labels, ports: ports.filter { !$0.isEmpty }, targets: targets, reason: sso ? "需要单点登录，本版暂不支持" : supported ? targets.isEmpty ? "地址范围或格式不支持直接打开" : "" : "仅展示地址与端口", disguise: a["enable_disguise"] == "1")
+        let item = VPNResource(id: "resource-\(ordinal)", name: String((a["name"] ?? "未命名资源").prefix(256)), groupID: groupID, gateway: type == 0, hosts: labels, ports: ports.filter { !$0.isEmpty }, targets: targets, copyTargets: copyTargets, reason: sso ? "需要单点登录，本版暂不支持" : supported ? targets.isEmpty ? "地址范围或格式不支持直接打开" : "" : "非网页资源，可复制资源地址", disguise: a["enable_disguise"] == "1")
         groups[groups.firstIndex(where: { $0.id == groupID })!].items.append(item)
     }
     return groups.filter { !$0.items.isEmpty }
+}
+
+func resourceCopyValue(_ resource: VPNResource, index: Int) -> String? {
+    if let target = resource.copyTargets.first(where: { $0.id == index }) ?? resource.copyTargets.first { return target.url.absoluteString }
+    let addresses = resource.hosts.filter { !$0.isEmpty }
+    return addresses.isEmpty ? nil : addresses.joined(separator: "\n")
 }
