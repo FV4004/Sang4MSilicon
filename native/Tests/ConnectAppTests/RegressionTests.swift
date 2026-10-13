@@ -78,6 +78,14 @@ final class RegressionTests: XCTestCase {
         XCTAssertEqual(controller.state, "disconnected")
         XCTAssertTrue(controller.detail.contains("信号 9")); XCTAssertTrue(controller.detail.contains("建立数据隧道"))
     }
+    @MainActor func testInvalidSessionIsRejectedBeforeHelperInstallation() async throws {
+        let controller = VPNController()
+        do {
+            try await controller.start(host: "127.0.0.1", port: 1, sessionID: "short", mode: "tun", socksPort: 0, httpPort: 0)
+            XCTFail("invalid session was accepted")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("登录会话格式无效")) }
+        XCTAssertEqual(controller.state, "disconnected")
+    }
     @MainActor func testTypingNeverStartsValidationAndFocusLossDoes() async throws {
         let suite = "ConnectInputTest-" + UUID().uuidString
         let preferences = UserDefaults(suiteName: suite)!
