@@ -3,9 +3,10 @@ import Security
 import Darwin
 
 func digest(_ code: SecCode) throws -> String {
-    var info: CFDictionary?
+    var staticCode: SecStaticCode?; var info: CFDictionary?
     guard SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), nil) == errSecSuccess,
-          SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+          SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
           let values = info as? [String: Any], let unique = values[kSecCodeInfoUnique as String] as? Data else { throw NSError(domain: "ClientIdentity", code: 1) }
     return unique.map { String(format: "%02x", $0) }.joined()
 }

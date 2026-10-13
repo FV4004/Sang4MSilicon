@@ -3,9 +3,10 @@ import Security
 import Darwin
 
 func clientCodeHash() throws -> String {
-    var code: SecCode?; var info: CFDictionary?
+    var code: SecCode?; var staticCode: SecStaticCode?; var info: CFDictionary?
     guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
-          SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+          SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
           let dictionary = info as? [String: Any], let data = dictionary[kSecCodeInfoUnique as String] as? Data else { throw VPNError("无法验证当前应用身份。") }
     return data.map { String(format: "%02x", $0) }.joined()
 }
