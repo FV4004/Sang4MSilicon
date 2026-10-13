@@ -22,6 +22,29 @@ final class RegressionTests: XCTestCase {
         await reader.value
         XCTAssertNil(try readHelperChunk(input))
     }
+    @MainActor func testTunnelFailureReleasesControlAndAcceptsFreshSession() async throws {
+        let controller = VPNController()
+        for attempt in 0..<2 {
+            var fds: [Int32] = [0, 0]
+            XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+            let control = FileHandle(fileDescriptor: fds[0], closeOnDealloc: true)
+            let peer = FileHandle(fileDescriptor: fds[1], closeOnDealloc: true)
+            defer { try? peer.close() }
+            controller.monitor(control, writer: control, mode: "tun", id: UUID())
+            try peer.write(contentsOf: Data("{\"event\":\"ready\",\"mode\":\"tun\",\"interface\":\"utun42\",\"routeCount\":1}\n".utf8))
+            for _ in 0..<100 { if controller.state == "connected" { break }; try await Task.sleep(nanoseconds: 5_000_000) }
+            XCTAssertEqual(controller.state, "connected", "fresh session \(attempt) did not connect")
+            try peer.write(contentsOf: Data("{\"event\":\"error\",\"code\":\"TUNNEL_FAILED\"}\n{\"event\":\"stopped\"}\n".utf8))
+            _ = Darwin.shutdown(peer.fileDescriptor, SHUT_WR)
+            for _ in 0..<100 { if controller.state == "disconnected" { break }; try await Task.sleep(nanoseconds: 5_000_000) }
+            XCTAssertEqual(controller.state, "disconnected")
+            XCTAssertEqual(controller.detail, VPNController.message("TUNNEL_FAILED"))
+            XCTAssertEqual(fcntl(fds[0], F_GETFD), -1, "closed session descriptor was retained")
+            XCTAssertEqual(errno, EBADF)
+            try await controller.stop()
+            XCTAssertEqual(controller.detail, VPNController.message("TUNNEL_FAILED"))
+        }
+    }
     @MainActor func testTypingNeverStartsValidationAndFocusLossDoes() async throws {
         let suite = "ConnectInputTest-" + UUID().uuidString
         let preferences = UserDefaults(suiteName: suite)!

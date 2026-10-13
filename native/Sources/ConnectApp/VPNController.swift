@@ -128,7 +128,25 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
             guard let input = writer, let output = socket else { throw VPNError("VPN 控制接口不可用。") }
             try input.write(contentsOf: JSONSerialization.data(withJSONObject: config) + Data([10])); config["sessionId"] = ""
             if mode == "proxy" { try input.close(); writer = nil }
-            reader = Task.detached { [weak self] in
+            monitor(output, writer: input, mode: mode, id: id)
+            let deadline = Date().addingTimeInterval(mode != "proxy" ? 180 : 60)
+            while state == "connecting" && Date() < deadline { guard !Task.isCancelled else { throw CancellationError() }; try await Task.sleep(nanoseconds: 100_000_000) }
+            if mode == "recover" {
+                guard stopped && !cleanupFailed && failureMessage == nil else { throw VPNError(failureMessage ?? Self.message("CLEANUP_FAILED")) }
+                // EOF releases the old control channel before another attempt.
+                let completion = reader
+                await completion?.value
+                return
+            }
+            guard state == "connected" else { let message = detail; try? await stop(); throw VPNError(message == "正在连接…" ? "VPN 连接超时。" : message) }
+        } catch { if activeID == id { try? await stop() }; throw error }
+    }
+    // Shared transport observer; EOF releases every retained session handle.
+    func monitor(_ output: FileHandle, writer: FileHandle?, mode: String, id: UUID) {
+        activeID = id; self.socket = output; self.writer = writer; self.mode = mode
+        stopped = false; cleanupFailed = false; failureMessage = nil
+        publish("connecting", detail)
+        reader = Task.detached { [weak self] in
                 var buffer = Data()
                 do {
                     while let chunk = try readHelperChunk(output), !chunk.isEmpty {
@@ -141,17 +159,6 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
                 } catch { await self?.readFailed(id: id) }
                 await self?.ended(id: id)
             }
-            let deadline = Date().addingTimeInterval(mode != "proxy" ? 180 : 60)
-            while state == "connecting" && Date() < deadline { guard !Task.isCancelled else { throw CancellationError() }; try await Task.sleep(nanoseconds: 100_000_000) }
-            if mode == "recover" {
-                guard stopped && !cleanupFailed && failureMessage == nil else { throw VPNError(failureMessage ?? Self.message("CLEANUP_FAILED")) }
-                // EOF releases the old control channel before another attempt.
-                let completion = reader
-                await completion?.value
-                return
-            }
-            guard state == "connected" else { let message = detail; try? await stop(); throw VPNError(message == "正在连接…" ? "VPN 连接超时。" : message) }
-        } catch { if activeID == id { try? await stop() }; throw error }
     }
     private func receive(_ data: Data, id: UUID) {
         guard activeID == id, let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = event["event"] as? String else { return }
