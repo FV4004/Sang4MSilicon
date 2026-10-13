@@ -8,7 +8,7 @@ struct RootView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 24) {
-                Image(systemName: "network.badge.shield.half.filled").font(.system(size: 38)).foregroundStyle(accent)
+                Image(systemName: "checkmark.shield").font(.system(size: 38)).foregroundStyle(accent)
                 Text("连接你的网络").font(.title2.bold())
                 Text("安全连接 · 内网分流").foregroundStyle(.secondary)
                 Button { model.tab = 0 } label: { Label("账号与连接", systemImage: "person.crop.circle") }.buttonStyle(.plain).foregroundStyle(model.tab == 0 ? accent : .secondary)

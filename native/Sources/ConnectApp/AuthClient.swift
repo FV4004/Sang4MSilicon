@@ -17,6 +17,7 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
     private(set) var authenticated = false
     private var generation = 0
     private var closed = false
+    private var otherSessions: [URLSession] = []
     init(_ origin: String, configuration: URLSessionConfiguration = .ephemeral) throws {
         base = try serverURL(origin)
         configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
@@ -24,7 +25,7 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
         storage = configuration.httpCookieStorage!
         session = URLSession(configuration: configuration, delegate: OriginDelegate(base), delegateQueue: nil)
     }
-    func request(_ path: String, origin: URL? = nil, form: [String: String]? = nil, headers: [String: String] = [:]) async throws -> Data {
+    func request(_ path: String, origin: URL? = nil, form: [String: String]? = nil, headers: [String: String] = [:], redirects: Int = 0) async throws -> Data {
         guard !closed else { throw VPNError("登录会话已关闭。") }
         let current = generation; let endpoint = origin ?? base
         guard var components = URLComponents(url: URL(string: path, relativeTo: endpoint)!.absoluteURL, resolvingAgainstBaseURL: false), let raw = components.url, sameOrigin(raw, endpoint) else { throw VPNError("服务器要求跳转到其他地址。") }
@@ -33,12 +34,30 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
         request.setValue("MChipVPNLogin/0.5.0-beta.1", forHTTPHeaderField: "User-Agent")
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         if let form { request.httpMethod = "POST"; request.httpBody = formBody(form); request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type") }
+        if endpoint.scheme == "http" {
+            let cookies = storage.cookies(for: request.url!) ?? []
+            if request.value(forHTTPHeaderField: "Cookie") == nil, !cookies.isEmpty { request.setValue(HTTPCookie.requestHeaderFields(with: cookies)["Cookie"], forHTTPHeaderField: "Cookie") }
+            let response = try await HTTPExchange(request: request, allowedOrigin: base).perform()
+            guard !closed, current == generation else { throw VPNError("操作已取消。") }
+            if let rawCookies = response.headers["set-cookie"] {
+                for raw in rawCookies.components(separatedBy: "\n") { HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": raw], for: request.url!).forEach { storage.setCookie($0) } }
+            }
+            if [301, 302, 303, 307, 308].contains(response.status) {
+                guard redirects < 5, let location = response.headers["location"], let next = URL(string: location, relativeTo: request.url)?.absoluteURL, sameOrigin(next, endpoint) else { throw VPNError("服务器跳转地址无效或重定向过多。") }
+                let toGET = response.status == 303 || [301, 302].contains(response.status) && form != nil
+                return try await self.request(next.absoluteString, form: toGET ? nil : form, headers: headers, redirects: redirects + 1)
+            }
+            guard (200..<300).contains(response.status), response.headers["content-encoding"].map({ $0.lowercased() == "identity" }) ?? true else { throw VPNError("服务器 HTTP 状态或响应编码不受支持。") }
+            return response.body
+        }
         // A separate redirect delegate is required for the HTTPS tunnel origin.
         let transport: URLSession
         if sameOrigin(endpoint, base) { transport = session }
-        else { let c = URLSessionConfiguration.ephemeral; c.httpCookieStorage = storage; c.timeoutIntervalForRequest = 15; c.timeoutIntervalForResource = 30; c.urlCache = nil; transport = URLSession(configuration: c, delegate: OriginDelegate(endpoint), delegateQueue: nil) }
-        defer { if transport !== session { transport.finishTasksAndInvalidate() } }
-        let (data, response) = try await transport.data(for: request)
+        else { let c = URLSessionConfiguration.ephemeral; c.httpCookieStorage = storage; c.timeoutIntervalForRequest = 15; c.timeoutIntervalForResource = 30; c.urlCache = nil; transport = URLSession(configuration: c, delegate: OriginDelegate(endpoint), delegateQueue: nil); otherSessions.append(transport) }
+        defer { if transport !== session { transport.finishTasksAndInvalidate(); otherSessions.removeAll { $0 === transport } } }
+        let (stream, response) = try await transport.bytes(for: request)
+        var data = Data()
+        for try await byte in stream { data.append(byte); if data.count > 2 * 1024 * 1024 { throw VPNError("服务器响应过大。") } }
         guard !closed, current == generation else { throw VPNError("操作已取消。") }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let final = response.url, sameOrigin(final, endpoint) else { throw VPNError("服务器返回了无效 HTTP 状态或跨站跳转。") }
         guard data.count <= 2 * 1024 * 1024 else { throw VPNError("服务器响应过大。") }
@@ -81,10 +100,16 @@ final class OriginDelegate: NSObject, URLSessionTaskDelegate {
         _ = try await request(url.url!.absoluteString, headers: ["TWFID": twfid])
         authenticated = true; challenge = ""; config = [:]; return "认证成功，可以连接 VPN。"
     }
-    func cancelPending() { generation += 1; session.getAllTasks { $0.forEach { $0.cancel() } } }
+    func cancelPending() async {
+        generation += 1
+        for transport in [session] + otherSessions {
+            let tasks = await withCheckedContinuation { (continuation: CheckedContinuation<[URLSessionTask], Never>) in transport.getAllTasks { continuation.resume(returning: $0) } }
+            tasks.forEach { $0.cancel() }
+        }
+    }
     func logout() async throws {
         defer { close() }
         if !twfid.isEmpty { let data = try await request("/por/logout.csp", form: [:], headers: ["TWFID": twfid]); if String(decoding: data, as: UTF8.self).contains("<Auth") { let result = try authFields(data); guard ["1", "20026"].contains(result["ErrorCode"] ?? "") else { throw VPNError("网关未确认注销登录。") } } }
     }
-    func close() { closed = true; generation += 1; session.invalidateAndCancel(); storage.cookies?.forEach { storage.deleteCookie($0) }; twfid = ""; config = [:]; challenge = ""; authenticated = false }
+    func close() { closed = true; generation += 1; session.invalidateAndCancel(); otherSessions.forEach { $0.invalidateAndCancel() }; otherSessions = []; storage.cookies?.forEach { storage.deleteCookie($0) }; twfid = ""; config = [:]; challenge = ""; authenticated = false }
 }

@@ -7,6 +7,7 @@ struct VPNResource: Identifiable {
 }
 struct ResourceGroup: Identifiable { let id: String; let name: String; var items: [VPNResource] }
 func webURL(_ input: String, service: String = "http", port: Int? = nil) -> URL? {
+    guard !input.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { return nil }
     let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !value.isEmpty, value.count <= 4096, !value.contains("\\"), !value.contains("~"), !value.contains("*"), !value.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { return nil }
     let explicit = value.contains("://")

@@ -7,6 +7,7 @@ import SwiftUI
     private var statusItem: NSStatusItem!
     private var terminating = false
     private var terminationComplete = false
+    private var closePromptVisible = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         configureMainMenu()
@@ -47,7 +48,7 @@ import SwiftUI
     private func updateStatus() {
         guard statusItem != nil else { return }
         let connected = model.vpnState == "connected"
-        let image = NSImage(systemSymbolName: connected ? "network.badge.shield.half.filled" : "network", accessibilityDescription: connected ? "VPN 已连接" : "VPN 未连接")
+        let image = NSImage(systemSymbolName: connected ? "checkmark.shield.fill" : "network", accessibilityDescription: connected ? "VPN 已连接" : "VPN 未连接")
         image?.isTemplate = true; statusItem.button?.image = image; statusItem.button?.toolTip = "连接你的网络 · " + model.vpnDetail
         guard let menu = statusItem.menu else { return }; menu.removeAllItems(); menu.autoenablesItems = false
         let state = NSMenuItem(title: model.vpnDetail, action: nil, keyEquivalent: ""); state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())
@@ -61,13 +62,15 @@ import SwiftUI
     @objc private func closeSettings() { UserDefaults.standard.removeObject(forKey: "closeAction"); showInterface(); let alert = NSAlert(); alert.messageText = "关闭行为已重置"; alert.informativeText = "下次关闭主窗口时，将重新询问退出或最小化。"; alert.beginSheetModal(for: window) }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if terminationComplete { return true }
-        if terminating { return false }
-        let remembered = UserDefaults.standard.string(forKey: "closeAction")
-        if remembered == "quit" { NSApp.terminate(nil); return false }
-        if remembered == "minimize" { sender.miniaturize(nil); return false }
+        if terminating || closePromptVisible { return false }
+        let remembered = CloseAction.remembered(UserDefaults.standard.string(forKey: "closeAction"))
+        if remembered == .quit { NSApp.terminate(nil); return false }
+        if remembered == .minimize { sender.miniaturize(nil); return false }
         let alert = NSAlert(); alert.messageText = "关闭程序还是最小化？"; alert.informativeText = "最小化会保留 VPN 连接，可通过系统状态栏恢复窗口。退出会断开 VPN 并注销登录认证。"
         alert.addButton(withTitle: "最小化"); alert.addButton(withTitle: "退出程序"); alert.addButton(withTitle: "取消"); alert.showsSuppressionButton = true; alert.suppressionButton?.title = "记忆我的选择"
-        alert.beginSheetModal(for: sender) { result in
+        closePromptVisible = true
+        alert.beginSheetModal(for: sender) { [weak self] result in
+            self?.closePromptVisible = false
             let action = result == .alertFirstButtonReturn ? "minimize" : result == .alertSecondButtonReturn ? "quit" : nil
             if let action, alert.suppressionButton?.state == .on { UserDefaults.standard.set(action, forKey: "closeAction") }
             if action == "minimize" { sender.miniaturize(nil) }; if action == "quit" { NSApp.terminate(nil) }

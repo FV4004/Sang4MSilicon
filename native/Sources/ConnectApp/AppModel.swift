@@ -34,6 +34,7 @@ import AppKit
     private var operation: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
     private var shuttingDown = false
+    private let shutdownCoordinator = ShutdownCoordinator()
     private var resourceOrigin: URL?
     init() {
         if rememberPassword { password = PasswordStore.load(server: server, username: username) }
@@ -130,14 +131,14 @@ import AppKit
         if !errors.isEmpty { throw VPNError(errors.joined(separator: "\n")) }
     }
     func shutdown() async -> String? {
-        guard !shuttingDown else { return nil }; shuttingDown = true; debounce?.cancel()
-        let pending = operation; operation?.cancel(); auth?.cancelPending()
-        // Close the active socket first to unblock a pending tunnel start.
-        var errors: [String] = []
-        do { try await vpn.stop() } catch { errors.append(error.localizedDescription) }
-        await pending?.value
-        do { try await cleanup() } catch { errors.append(error.localizedDescription) }
-        password = ""; UserDefaults.standard.synchronize()
-        return errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: "\n")
+        shuttingDown = true
+        let pending = operation
+        return await shutdownCoordinator.shutdown(cancel: { [self] in
+            debounce?.cancel(); operation?.cancel(); await auth?.cancelPending()
+        }, stopVPN: { [self] in try await vpn.stop() }, drain: { await pending?.value }, closeWeb: { [self] in await browser.close() }, logout: { [self] in
+            let client = auth; auth = nil; try await client?.logout()
+        }, clear: { [self] in
+            authenticated = false; ready = false; challenge = false; groups = []; resourceOrigin = nil; password = ""; UserDefaults.standard.synchronize()
+        })
     }
 }

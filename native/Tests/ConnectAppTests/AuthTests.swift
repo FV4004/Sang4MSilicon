@@ -5,6 +5,8 @@ final class MockProtocol: URLProtocol {
     static var requests: [URLRequest] = []
     static var failLogout = false
     static let lock = NSLock()
+    static func reset(offline: Bool) { lock.lock(); defer { lock.unlock() }; requests = []; failLogout = offline }
+    static func lastLogout() -> URLRequest? { lock.lock(); defer { lock.unlock() }; return requests.last { $0.url?.path == "/por/logout.csp" } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -20,13 +22,13 @@ final class MockProtocol: URLProtocol {
 final class AuthTests: XCTestCase {
     @MainActor func testLogoutUsesSessionAndAlwaysClearsLocalState() async throws {
         for offline in [false, true] {
-            MockProtocol.lock.lock(); MockProtocol.requests = []; MockProtocol.failLogout = offline; MockProtocol.lock.unlock()
+            MockProtocol.reset(offline: offline)
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [MockProtocol.self]
-            let auth = try AuthClient("http://vpn.example:8080", configuration: configuration)
+            let auth = try AuthClient("https://vpn.example:8443", configuration: configuration)
             _ = try await auth.initialize(); XCTAssertEqual(auth.twfid, "session-123")
             if offline { do { try await auth.logout(); XCTFail("Offline logout must report failure") } catch {} } else { try await auth.logout() }
             XCTAssertEqual(auth.twfid, ""); XCTAssertFalse(auth.authenticated)
-            MockProtocol.lock.lock(); let logout = MockProtocol.requests.last { $0.url?.path == "/por/logout.csp" }; MockProtocol.lock.unlock()
+            let logout = MockProtocol.lastLogout()
             XCTAssertEqual(logout?.httpMethod, "POST"); XCTAssertEqual(logout?.value(forHTTPHeaderField: "TWFID"), "session-123")
             do { _ = try await auth.request("/por/login_auth.csp"); XCTFail("Closed session must reject requests") } catch {}
         }

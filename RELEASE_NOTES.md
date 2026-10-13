@@ -1,3 +1,12 @@
+## v0.5.0-beta.1 — Swift 原生迁移
+
+- SwiftUI 原生主界面、AppKit 状态栏图标及连接／断开／显示界面／退出菜单。
+- WKWebView 临时会话展示网关 Web 资源，普通网页仍由系统浏览器访问。
+- HTTP／HTTPS、RSA 防重放、验证码及动态认证迁移，密码可选保存到系统钥匙串。
+- 记忆窗口关闭行为；显式退出断开 VPN 并尝试注销认证。
+- Universal 2 应用及 Go 辅助程序，支持 Apple Silicon 和 Intel Mac，macOS 13+。
+- 真实服务器兼容性需安装验证；未做 Developer ID 签名与公证。
+
 # 0.4.0-beta.1 · 资源目录集成分支
 
 - 新建 `feature/resource-catalog-and-lifecycle`，main 保持原状。
