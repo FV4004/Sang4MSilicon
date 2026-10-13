@@ -50,6 +50,9 @@ class AuthClient {
     this.config = null; this.twfid = ''; this.challenge = ''; this.authenticated = false;
     this.closed = false; this.activeRequests = new Set();
   }
+  cancelPending() {
+    this.closing=true;for(const req of this.activeRequests)req.destroy(new Error('操作已取消。'));
+  }
   close() {
     this.closed = true;
     for (const req of this.activeRequests) req.destroy(new Error('操作已取消。'));
@@ -57,7 +60,7 @@ class AuthClient {
     this.jar = new CookieJar();
   }
   async request(pathname, {method = 'GET', form, headers = {}} = {}, redirectCount = 0) {
-    if (this.closed) throw new Error('会话已关闭，请重新获取验证码。');
+    if (this.closed || this.closing) throw new Error('会话已关闭，请重新获取验证码。');
     const u = new URL(pathname, this.base);
     if (u.origin !== this.base.origin) throw new Error('服务器要求跳转到其他地址，请使用最终登录地址重新连接。');
     if (!u.searchParams.has('apiversion')) u.searchParams.set('apiversion', '1');
@@ -65,7 +68,7 @@ class AuthClient {
     const cookie = await this.jar.getCookieString(u.href);
     const response = await new Promise((resolve, reject) => {
       const req = (u.protocol === 'https:' ? https : http).request(u, {method, ...(this.tlsCA ? {ca: this.tlsCA} : {}), headers: {
-        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.2.0-beta.1', ...(cookie ? {Cookie: cookie} : {}), ...headers,
+        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.4.0-beta.1', ...(cookie ? {Cookie: cookie} : {}), ...headers,
         ...(payload ? {'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': payload.length} : {})
       }}, res => {
         const chunks = []; let size = 0;
@@ -80,7 +83,7 @@ class AuthClient {
       if (payload) req.write(payload);
       req.end();
     });
-    if (this.closed) throw new Error('操作已取消。');
+    if (this.closed || this.closing) throw new Error('操作已取消。');
     for (const item of response.headers['set-cookie'] || []) await this.jar.setCookie(item, u.href);
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       if (!response.headers.location || redirectCount >= 5) throw new Error('服务器重定向过多或地址无效。');
@@ -176,8 +179,13 @@ class AuthClient {
     return this.authResult(parseAuth((await this.request(route, {method: 'POST', form})).body));
   }
   async logout() {
-    if (this.authenticated) await this.request('/por/logout.csp', {method: 'POST'});
-    this.close(); return {phase: 'idle', message: '登录会话已清除。'};
+    this.closing=false;
+    try {
+      if(this.twfid){const r=await this.request('/por/logout.csp',{method:'POST',headers:{TWFID:this.twfid}});
+       if(/<Auth[\s>]/.test(r.body.toString('utf8'))){const a=parseAuth(r.body);if(![1,20026].includes(Number(a.ErrorCode)))throw Error('网关未确认注销登录。')}
+      }
+      return {phase:'idle',message:'登录会话已清除。'};
+    } finally {this.close()}
   }
 }
 module.exports = {AuthClient, serverURL, parseAuth, rsaPassword, captchaType};

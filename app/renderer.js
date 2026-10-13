@@ -1,10 +1,15 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let view='connection',resourceBusy=false,resourceGroups=[],resourcePage=0;
 let accountOrigin='',accountRequest=0,canRememberPassword=true,autoFilledPassword=false;
 let recoveryPending = false;
 let phase = 'idle', busy = false, preparedServer = '', required = false, vpnState = {state: 'disconnected'};
 function message(text, kind = '') { $('feedback').textContent = text; $('feedback').className = 'feedback ' + kind; }
 function controls() {
+  $('view-tabs').hidden=phase!=='authenticated';
+  if(phase!=='authenticated')view='connection';
+  $('connection-view').hidden=view!=='connection';$('resource-view').hidden=view!=='resources';
+  $('tab-connection').classList.toggle('active',view==='connection');$('tab-resources').classList.toggle('active',view==='resources');
   $('remember-password').disabled=busy||phase==='authenticated'||!canRememberPassword;
   $('recover-network').hidden = !recoveryPending && vpnState.code !== 'CLEANUP_FAILED';
   $('recover-network').disabled = busy;
@@ -79,14 +84,14 @@ $('login-form').addEventListener('submit', e => {
 
     }
     phase = r.phase; $('challenge').value = '';
-    if (phase === 'authenticated') $('password').value = '';
+    if (phase === 'authenticated') {$('password').value='';void refreshResources();}
     if (phase === 'challenge') { $('captcha-area').hidden = true; $('captcha').required = false; $('password').required = false; $('challenge-name').textContent = r.nextService; }
     message((phase === 'authenticated' ? '认证成功，可以连接 VPN。' : r.message)+(r.memoryWarning?' '+r.memoryWarning:''), phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
   });
 });
 $('logout').addEventListener('click', () => operation(async () => {
   $('password').value = '';
-  unpack(await window.vpnAuth.logout()); phase = 'idle'; $('password').required = true; $('captcha').required = false; $('captcha-area').hidden = true; $('captcha-image').removeAttribute('src'); $('password').value = ''; message('登录会话已清除。');
+  const result=await window.vpnAuth.logout();phase='idle';resourceGroups=[];renderResources();unpack(result); $('password').required = true; $('captcha').required = false; $('captcha-area').hidden = true; $('captcha-image').removeAttribute('src'); $('password').value = ''; message('登录会话已清除。');
 }));
 controls();
 
@@ -161,3 +166,39 @@ $('username').addEventListener('input',()=>{if(autoFilledPassword){$('password')
 $('username').addEventListener('blur',()=>void saveAccountSettings());
 $('password').addEventListener('input',()=>{autoFilledPassword=false});
 $('remember-password').addEventListener('change',()=>void saveAccountSettings());
+
+function resourceMessage(text,error=false){$('resource-feedback').textContent=text;$('resource-feedback').className='feedback'+(error?' error':'')}
+async function refreshResources(){
+ if(resourceBusy||phase!=='authenticated'||!window.vpnAuth.resourceList)return;
+ resourceBusy=true;$('resource-refresh').disabled=true;renderResources();resourceMessage('正在获取授权资源…');
+ try{const r=unpack(await window.vpnAuth.resourceList({tunnelPort:Number($('tunnel-port').value)}));if(phase!=='authenticated')return;resourceGroups=r.groups||[];resourcePage=0;
+  const select=$('resource-group');select.replaceChildren();const all=document.createElement('option');all.value='';all.textContent='全部分组';select.append(all);
+  for(const g of resourceGroups){const option=document.createElement('option');option.value=g.id;option.textContent=g.name;select.append(option)}
+  resourceMessage('已获取 '+r.count+' 项授权资源。普通内网网页需先连接 TUN。');
+ }catch(error){resourceMessage(error.message||'资源获取失败，请重试。',true)}
+ finally{resourceBusy=false;$('resource-refresh').disabled=false;renderResources()}
+}
+function renderResources(){
+ const container=$('resource-items');if(!container?.replaceChildren)return;container.replaceChildren();
+ const group=$('resource-group').value,query=$('resource-search').value.trim().toLowerCase();
+ const items=resourceGroups.filter(g=>!group||g.id===group).flatMap(g=>g.items.map(item=>({...item,groupName:g.name}))).filter(item=>!query||[item.name,...item.hosts,...item.ports].join(' ').toLowerCase().includes(query));
+ const pages=Math.ceil(items.length/4);resourcePage=Math.max(0,Math.min(resourcePage,Math.max(0,pages-1)));$('resource-page').textContent=pages?(resourcePage+1)+' / '+pages:'0 / 0';$('resource-prev').disabled=resourcePage===0||resourceBusy;$('resource-next').disabled=resourcePage>=pages-1||resourceBusy;
+ for(const item of items.slice(resourcePage*4,resourcePage*4+4)){
+  const card=document.createElement('article');card.className='resource-card';
+  const add=(tag,text,cls)=>{const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;card.append(e);return e};
+  add('h3',item.name).title=item.name;add('p',item.groupName+' · '+(item.kind==='gateway'?'网关 Web 代理':'内网资源'),'resource-type');
+  const hosts=add('p','地址：'+(item.hosts.join('；')||'未提供'));hosts.title=hosts.textContent;
+  const ports=add('p','端口：'+(item.ports.join('；')||'默认')+(item.service?' · '+item.service.toUpperCase():''));ports.title=ports.textContent;
+  if(item.targets.length){const row=document.createElement('div');row.className='resource-open-row';const select=document.createElement('select');select.setAttribute('aria-label','选择资源地址');for(const target of item.targets){const option=document.createElement('option');option.value=String(target.index);option.textContent=target.label;select.append(option)}
+   const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=item.kind==='gateway'?'打开网关资源':'浏览器打开';button.disabled=resourceBusy;
+   button.addEventListener('click',async()=>{button.disabled=true;try{unpack(await window.vpnAuth.openResource({key:item.key,index:Number(select.value)}));resourceMessage('资源已打开。')}catch(error){resourceMessage(error.message,true)}finally{button.disabled=resourceBusy}});row.append(select,button);card.append(row);
+  }else add('p',item.reason,'resource-reason');container.append(card);
+ }
+}
+$('tab-connection').addEventListener('click',()=>{view='connection';controls()});
+$('tab-resources').addEventListener('click',()=>{view='resources';controls();renderResources();if(!resourceGroups.length)void refreshResources()});
+$('resource-refresh').addEventListener('click',()=>void refreshResources());
+$('resource-group').addEventListener('change',()=>{resourcePage=0;renderResources()});$('resource-search').addEventListener('input',()=>{resourcePage=0;renderResources()});
+$('resource-prev').addEventListener('click',()=>{resourcePage--;renderResources()});$('resource-next').addEventListener('click',()=>{resourcePage++;renderResources()});
+$('close-settings').addEventListener('click',async()=>{try{unpack(await window.vpnAuth.closeSettings())}catch(error){message(error.message,'error')}});
+$('quit-app').addEventListener('click',()=>window.vpnAuth.quitApp());

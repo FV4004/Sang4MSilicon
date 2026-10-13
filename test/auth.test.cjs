@@ -158,3 +158,9 @@ test('Failed auth refresh prevents password submission', async t => {
  await assert.rejects(client.login(creds),/刷新认证配置失败/);
  assert.equal(calls.filter(c => c.path === '/por/login_psw.csp').length,0);
 });
+
+test('logout failure still clears credentials, cookies and local authentication',async()=>{
+ const c=new AuthClient('http://vpn.example.com');c.twfid='temporary-session';c.authenticated=true;
+ c.request=async()=>{throw Error('gateway offline')};await assert.rejects(c.logout(),/offline/);
+ assert.equal(c.closed,true);assert.equal(c.authenticated,false);assert.equal(c.twfid,'');
+});
