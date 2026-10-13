@@ -96,6 +96,8 @@ func brokerHandshake(_ handle: FileHandle) async throws {
     private var failureMessage: String?
     private var activeID = UUID()
     private var lastStage = "初始化"
+    private var connectionDetail = "已连接 · 内网分流"
+    private var recoveringChannels = Set<String>()
     private var forceServiceInstall = false
     private func publish(_ state: String, _ detail: String) { self.state = state; self.detail = detail; onChange?() }
     func start(host: String, port: Int, sessionID: String, mode: String, socksPort: Int, httpPort: Int) async throws {
@@ -182,7 +184,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
     // Shared transport observer; EOF releases every retained session handle.
     func monitor(_ output: FileHandle, writer: FileHandle?, mode: String, id: UUID) {
         activeID = id; self.socket = output; self.writer = writer; self.mode = mode
-        stopped = false; cleanupFailed = false; failureMessage = nil
+        stopped = false; cleanupFailed = false; failureMessage = nil; recoveringChannels = []
         publish("connecting", detail)
         reader = Task.detached { [weak self] in
                 var buffer = Data()
@@ -200,7 +202,8 @@ func brokerHandshake(_ handle: FileHandle) async throws {
     }
     private func receive(_ data: Data, id: UUID) {
         guard activeID == id, let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = event["event"] as? String else { return }
-        if name == "retry" && state == "connected" { publish("connected", "数据连接中断，正在重新建立隧道…"); return }
+        if name == "retry" && state == "connected" { if let direction = event["direction"] as? String { recoveringChannels.insert(direction) }; publish("connected", "数据连接中断，正在重新建立隧道…"); return }
+        if name == "resumed" && state == "connected" { if let direction = event["direction"] as? String { recoveringChannels.remove(direction) }; if recoveringChannels.isEmpty { publish("connected", connectionDetail) }; return }
         if name == "workerExit" {
             if !stopped && failureMessage == nil {
                 let status = event["status"] as? Int ?? -1
@@ -219,7 +222,8 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         }
         else if name == "ready" && state == "connecting" {
             if mode == "tun" { guard event["mode"] as? String == "tun", (event["interface"] as? String)?.range(of: "^utun[0-9]+$", options: .regularExpression) != nil, (event["routeCount"] as? Int ?? 0) > 0 else { publish("error", "VPN TUN 状态无效。"); return } }
-            publish("connected", "已连接 · \(event["ip"] as? String ?? "")\(mode == "tun" ? " · 内网分流" : " · 本地代理")")
+            connectionDetail = "已连接 · \(event["ip"] as? String ?? "")\(mode == "tun" ? " · 内网分流" : " · 本地代理")"
+            publish("connected", connectionDetail)
         }
     }
     private func readFailed(id: UUID) { guard activeID == id else { return }; if state != "stopping" { publish("error", "VPN 控制连接中断。") } }

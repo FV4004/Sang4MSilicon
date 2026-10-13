@@ -22,6 +22,7 @@ type packetTunnel struct {
 	openSend func() (io.WriteCloser, error)
 	openRecv func() (io.ReadCloser, error)
 	retry    func(string)
+	resumed  func(string)
 }
 
 func retryableStreamError(err error) bool {
@@ -80,6 +81,9 @@ func (t *packetTunnel) replace(direction string) error {
 			}
 			t.recv = conn
 			t.mu.Unlock()
+			if t.resumed != nil {
+				t.resumed(direction)
+			}
 			return nil
 		}
 		conn, err := t.openSend()
@@ -97,6 +101,9 @@ func (t *packetTunnel) replace(direction string) error {
 		}
 		t.send = conn
 		t.mu.Unlock()
+		if t.resumed != nil {
+			t.resumed(direction)
+		}
 		return nil
 	}
 	return errors.New("data channel reconnect exhausted")

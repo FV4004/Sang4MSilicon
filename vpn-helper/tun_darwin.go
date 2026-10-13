@@ -441,6 +441,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		openSend: func() (io.WriteCloser, error) { return vpn.SendConn() },
 		openRecv: func() (io.ReadCloser, error) { return vpn.RecvConn() },
 		retry:    func(direction string) { emit(map[string]string{"event": "retry", "direction": direction}) },
+		resumed:  func(direction string) { emit(map[string]string{"event": "resumed", "direction": direction}) },
 	}
 	defer tunnel.Close()
 	device, e := openDevice(ip.String())
