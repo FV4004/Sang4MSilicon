@@ -1,0 +1,91 @@
+import AppKit
+import SwiftUI
+
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
+    let model = AppModel()
+    private var window: NSWindow!
+    private var statusItem: NSStatusItem!
+    private var terminating = false
+    private var terminationComplete = false
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        configureMainMenu()
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "连接你的网络"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 960, height: 800); window.delegate = self
+        window.contentView = NSHostingView(rootView: RootView(model: model, closeSettings: { [weak self] in self?.closeSettings() }, quit: { NSApp.terminate(nil) }))
+        window.center()
+        model.showWindow = { [weak self] in self?.showInterface() }
+        model.onStateChange = { [weak self] in self?.updateStatus() }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let menu = NSMenu(); menu.delegate = self; statusItem.menu = menu
+        updateStatus(); showInterface()
+        model.initialize()
+        if ProcessInfo.processInfo.arguments.contains("--ui-smoke") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self, self.window.isVisible, self.statusItem.menu?.items.contains(where: { $0.title == "连接 VPN" }) == true, self.window.contentView != nil else { exit(1) }
+                print("Native window and status menu smoke passed")
+                NSApp.terminate(nil)
+            }
+        }
+    }
+    private func configureMainMenu() {
+        let main = NSMenu(); let application = NSMenuItem(); main.addItem(application)
+        let appMenu = NSMenu(); application.submenu = appMenu
+        let show = NSMenuItem(title: "显示界面", action: #selector(showInterface), keyEquivalent: "0"); show.target = self; appMenu.addItem(show)
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "隐藏程序", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(NSMenuItem(title: "退出程序", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let edit = NSMenuItem(); edit.title = "编辑"; main.addItem(edit); let menu = NSMenu(title: "编辑"); edit.submenu = menu
+        for (title, action, key) in [("撤销", Selector(("undo:")), "z"), ("剪切", #selector(NSText.cut(_:)), "x"), ("复制", #selector(NSText.copy(_:)), "c"), ("粘贴", #selector(NSText.paste(_:)), "v"), ("全选", #selector(NSText.selectAll(_:)), "a")] { menu.addItem(NSMenuItem(title: title, action: action, keyEquivalent: key)) }
+        NSApp.mainMenu = main
+    }
+    @objc func showInterface() { if window?.isMiniaturized == true { window.deminiaturize(nil) }; window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    @objc private func connectVPN() { model.connect() }
+    @objc private func disconnectVPN() { model.disconnect() }
+    @objc private func quitApp() { NSApp.terminate(nil) }
+    func menuWillOpen(_ menu: NSMenu) { updateStatus() }
+    private func updateStatus() {
+        guard statusItem != nil else { return }
+        let connected = model.vpnState == "connected"
+        let image = NSImage(systemSymbolName: connected ? "network.badge.shield.half.filled" : "network", accessibilityDescription: connected ? "VPN 已连接" : "VPN 未连接")
+        image?.isTemplate = true; statusItem.button?.image = image; statusItem.button?.toolTip = "连接你的网络 · " + model.vpnDetail
+        guard let menu = statusItem.menu else { return }; menu.removeAllItems(); menu.autoenablesItems = false
+        let state = NSMenuItem(title: model.vpnDetail, action: nil, keyEquivalent: ""); state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())
+        let connect = NSMenuItem(title: "连接 VPN", action: #selector(connectVPN), keyEquivalent: ""); connect.target = self; connect.isEnabled = !terminating && !model.busy && model.vpnState == "disconnected"; menu.addItem(connect)
+        let disconnect = NSMenuItem(title: "断开 VPN", action: #selector(disconnectVPN), keyEquivalent: ""); disconnect.target = self; disconnect.isEnabled = !terminating && model.vpnState != "disconnected" && model.vpnState != "stopping"; menu.addItem(disconnect)
+        menu.addItem(.separator())
+        let show = NSMenuItem(title: "显示界面", action: #selector(showInterface), keyEquivalent: ""); show.target = self; menu.addItem(show)
+        let settings = NSMenuItem(title: "关闭行为设置…", action: #selector(closeSettings), keyEquivalent: ""); settings.target = self; menu.addItem(settings)
+        menu.addItem(.separator()); let quit = NSMenuItem(title: "退出程序", action: #selector(quitApp), keyEquivalent: ""); quit.target = self; quit.isEnabled = !terminating; menu.addItem(quit)
+    }
+    @objc private func closeSettings() { UserDefaults.standard.removeObject(forKey: "closeAction"); showInterface(); let alert = NSAlert(); alert.messageText = "关闭行为已重置"; alert.informativeText = "下次关闭主窗口时，将重新询问退出或最小化。"; alert.beginSheetModal(for: window) }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if terminationComplete { return true }
+        if terminating { return false }
+        let remembered = UserDefaults.standard.string(forKey: "closeAction")
+        if remembered == "quit" { NSApp.terminate(nil); return false }
+        if remembered == "minimize" { sender.miniaturize(nil); return false }
+        let alert = NSAlert(); alert.messageText = "关闭程序还是最小化？"; alert.informativeText = "最小化会保留 VPN 连接，可通过系统状态栏恢复窗口。退出会断开 VPN 并注销登录认证。"
+        alert.addButton(withTitle: "最小化"); alert.addButton(withTitle: "退出程序"); alert.addButton(withTitle: "取消"); alert.showsSuppressionButton = true; alert.suppressionButton?.title = "记忆我的选择"
+        alert.beginSheetModal(for: sender) { result in
+            let action = result == .alertFirstButtonReturn ? "minimize" : result == .alertSecondButtonReturn ? "quit" : nil
+            if let action, alert.suppressionButton?.state == .on { UserDefaults.standard.set(action, forKey: "closeAction") }
+            if action == "minimize" { sender.miniaturize(nil) }; if action == "quit" { NSApp.terminate(nil) }
+        }
+        return false
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if terminationComplete { return .terminateNow }; if terminating { return .terminateLater }
+        terminating = true; updateStatus()
+        Task {
+            if let warning = await model.shutdown() { let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "退出清理提示"; alert.informativeText = warning; alert.runModal() }
+            terminationComplete = true; if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }; sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showInterface(); return true }
+}
+@main struct NativeApp {
+    @MainActor static func main() { let app = NSApplication.shared; let delegate = AppDelegate(); app.delegate = delegate; withExtendedLifetime(delegate) { app.run() } }
+}

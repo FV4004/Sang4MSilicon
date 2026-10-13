@@ -1,0 +1,67 @@
+name: Swift native macOS Universal beta
+on:
+  push:
+    branches: ['feature/swift-native']
+    tags: ['v0.5.*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-test-and-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+          cache-dependency-path: vpn-helper/go.sum
+      - name: Native Swift protocol and lifecycle tests
+        run: swift test
+        working-directory: native
+      - run: python3 scripts/prepare-vpn.py
+      - name: Go core race regression tests
+        run: go test -race ./...
+        working-directory: vpn-helper
+      - name: Native UTUN smoke
+        run: |
+          go test -c -o ../.build/mchip-helper.test .
+          sudo env MCHIP_TUN_SMOKE=1 ../.build/mchip-helper.test -test.run '^TestNativeUTUNSmoke$' -test.v
+        working-directory: vpn-helper
+      - name: Build Universal native application
+        run: python3 scripts/package-native.py
+      - name: Native window and status bar smoke
+        run: dist-native/Connect.app/Contents/MacOS/Connect --ui-smoke
+      - name: Verify source provenance and archive
+        run: |
+          set -euo pipefail
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.1-source.zip
+          cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
+          cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
+          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.1-mac-universal.zip
+          cd dist-native
+          shasum -a 256 *.zip *-source.tar.gz build-info.json > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Connect-native-universal-beta
+          path: |
+            dist-native/*.zip
+            dist-native/*-source.tar.gz
+            dist-native/build-info.json
+            dist-native/SHA256SUMS.txt
+  publish:
+    needs: native-test-and-package
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Connect-native-universal-beta
+          path: dist-native
+      - name: Publish native prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          gh release create v0.5.0-beta.1 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title 'Connect v0.5.0-beta.1 · Swift native Universal' --notes 'Native SwiftUI/AppKit migration based on the v0.4.0-beta.1 resource branch. Supports HTTP/HTTPS authentication, captcha and dynamic challenges, Keychain password memory, grouped resource catalog, system-browser direct Web resources, isolated WKWebView gateway resources, native status-bar controls, remembered close choices and TUN/logout cleanup. Universal 2 app and Go helper support Apple Silicon and Intel Macs, macOS 13+. No Electron runtime. Automated Swift and Go tests, UTUN smoke and native window/menu smoke passed. Real gateway login, WebKit resource compatibility and administrator authorization need installation testing. Ad-hoc signed; no Developer ID or notarization. AGPL source included.' dist-native/*.zip dist-native/*-source.tar.gz dist-native/build-info.json dist-native/SHA256SUMS.txt
