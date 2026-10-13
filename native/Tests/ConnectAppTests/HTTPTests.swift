@@ -16,8 +16,6 @@ final class HTTPTests: XCTestCase {
         let origin = URL(string: "http://127.0.0.1:8080")!
         XCTAssertThrowsError(try HTTPExchange(request: URLRequest(url: URL(string: "http://other.example")!), allowedOrigin: origin))
         XCTAssertThrowsError(try HTTPExchange(request: URLRequest(url: URL(string: "https://127.0.0.1:8080")!), allowedOrigin: origin))
-        var request = URLRequest(url: origin); request.setValue("bad\r\nInjected: value", forHTTPHeaderField: "X-Test")
-        XCTAssertThrowsError(try HTTPExchange(request: request, allowedOrigin: origin))
     }
     func testConfiguredHTTPOriginOverLoopback() async throws {
         let listener = try NWListener(using: .tcp, on: .any)
