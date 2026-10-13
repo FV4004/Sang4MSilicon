@@ -2,16 +2,17 @@ import SwiftUI
 import AppKit
 
 @MainActor final class AppModel: ObservableObject {
-    @Published var server = UserDefaults.standard.string(forKey: "server") ?? ""
-    @Published var username = UserDefaults.standard.string(forKey: "username") ?? ""
+    @Published var server = ""
+    @Published var username = ""
     @Published var password = ""
-    @Published var rememberPassword = UserDefaults.standard.bool(forKey: "rememberPassword")
+    @Published var rememberPassword = false
     @Published var captcha = ""
     @Published var captchaImage: NSImage?
     @Published var requiresCaptcha = false
     @Published var response = ""
     @Published var message = "输入服务器地址，连接你的网络。"
     @Published var busy = false
+    @Published private(set) var preparingServer = false
     @Published var authenticated = false
     @Published var challenge = false
     @Published var ready = false
@@ -32,11 +33,18 @@ import AppKit
     var showWindow: (() -> Void)?
     private var auth: AuthClient?
     private var operation: Task<Void, Never>?
-    private var debounce: Task<Void, Never>?
+    private var preparationWait: Task<Void, Never>?
+    private var serverEditing = false
+    private let preferences: UserDefaults
+    private let authFactory: (String) throws -> AuthClient
     private var shuttingDown = false
     private let shutdownCoordinator = ShutdownCoordinator()
     private var resourceOrigin: URL?
-    init() {
+    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil) {
+        self.preferences = preferences; self.authFactory = authFactory ?? { try AuthClient($0) }
+        server = preferences.string(forKey: "server") ?? ""
+        username = preferences.string(forKey: "username") ?? ""
+        rememberPassword = preferences.bool(forKey: "rememberPassword")
         if rememberPassword { password = PasswordStore.load(server: server, username: username) }
         vpn.onChange = { [weak self] in guard let self else { return }; self.vpnState = self.vpn.state; self.vpnDetail = self.vpn.detail; self.onStateChange?() }
     }
@@ -44,33 +52,46 @@ import AppKit
         guard !busy, !shuttingDown else { return }; busy = true; onStateChange?()
         operation = Task { [weak self] in
             guard let self else { return }
-            do { try await work() } catch is CancellationError {} catch { if !self.shuttingDown { self.message = error.localizedDescription } }
+            do { try await work() } catch is CancellationError {} catch { if !self.shuttingDown && !Task.isCancelled { self.message = error.localizedDescription } }
             self.busy = false; self.operation = nil; self.onStateChange?()
         }
     }
     func serverChanged() {
-        UserDefaults.standard.set(server, forKey: "server")
-        debounce?.cancel()
+        preferences.set(server, forKey: "server")
+        preparationWait?.cancel()
         guard !authenticated, !shuttingDown else { return }
         ready = false
-        debounce = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }
-            guard let self, !Task.isCancelled else { return }
+        // Editing never starts a request. Cancel preparation for the old address
+        // without cancelling an authenticated connection or password submission.
+        if preparingServer { operation?.cancel() }
+        if !busy || preparingServer { auth?.close(); auth = nil; captchaImage = nil; requiresCaptcha = false; captcha = "" }
+    }
+    func serverEditingChanged(_ editing: Bool) {
+        serverEditing = editing
+        preparationWait?.cancel()
+        guard !editing, !authenticated, !shuttingDown, !ready, (try? serverURL(server)) != nil else { return }
+        let pending = operation
+        preparationWait = Task { [weak self] in
+            await pending?.value
+            guard let self, !Task.isCancelled, !self.serverEditing, !self.shuttingDown, !self.ready else { return }
             self.initialize()
         }
     }
     func rememberChanged() {
-        UserDefaults.standard.set(rememberPassword, forKey: "rememberPassword")
+        preferences.set(rememberPassword, forKey: "rememberPassword")
         if !rememberPassword { do { try PasswordStore.save(nil, server: server, username: username) } catch { message = error.localizedDescription } }
     }
     func initialize() {
-        guard !server.isEmpty, !authenticated else { return }
+        guard !server.isEmpty, !authenticated, !busy, !shuttingDown else { return }
+        let requestedServer = server
+        preparingServer = true
         run { [self] in
+            defer { preparingServer = false }
             auth?.close(); ready = false; challenge = false; requiresCaptcha = false; captchaImage = nil; captcha = ""
-            let client = try AuthClient(server); auth = client
+            let client = try authFactory(requestedServer); auth = client
             if client.base.scheme == "https", let port = client.base.port { tunnelPort = String(port) } else { tunnelPort = "443" }
             let image = try await client.initialize(); try Task.checkCancellation()
-            guard auth === client, !shuttingDown else { return }
+            guard auth === client, server == requestedServer, !shuttingDown else { return }
             requiresCaptcha = client.captchaRequired
             if let image { guard let decoded = NSImage(data: image) else { throw VPNError("服务器未返回有效验证码图片。") }; captchaImage = decoded }
             ready = true; message = "请输入账号、密码\(requiresCaptcha ? "和验证码" : "")。"
@@ -86,7 +107,7 @@ import AppKit
             message = challenge ? try await client.submitChallenge(response) : try await client.login(username: username, password: password, captcha: captcha)
             try Task.checkCancellation(); authenticated = client.authenticated; challenge = !client.challenge.isEmpty
             if authenticated {
-                UserDefaults.standard.set(server, forKey: "server"); UserDefaults.standard.set(username, forKey: "username"); UserDefaults.standard.set(rememberPassword, forKey: "rememberPassword")
+                preferences.set(server, forKey: "server"); preferences.set(username, forKey: "username"); preferences.set(rememberPassword, forKey: "rememberPassword")
                 if rememberPassword { do { try PasswordStore.save(password, server: server, username: username) } catch { message += " " + error.localizedDescription } }
                 captcha = ""; response = ""; captchaImage = nil
                 do { try await fetchResources() } catch { message = "认证成功；资源列表加载失败：" + error.localizedDescription }
@@ -134,11 +155,11 @@ import AppKit
         shuttingDown = true
         let pending = operation
         return await shutdownCoordinator.shutdown(cancel: { [self] in
-            debounce?.cancel(); operation?.cancel(); await auth?.cancelPending()
+            preparationWait?.cancel(); operation?.cancel(); await auth?.cancelPending()
         }, stopVPN: { [self] in try await vpn.stop() }, drain: { await pending?.value }, closeWeb: { [self] in await browser.close() }, logout: { [self] in
             let client = auth; auth = nil; try await client?.logout()
         }, clear: { [self] in
-            authenticated = false; ready = false; challenge = false; groups = []; resourceOrigin = nil; password = ""; UserDefaults.standard.synchronize()
+            authenticated = false; ready = false; challenge = false; groups = []; resourceOrigin = nil; password = ""; preferences.synchronize()
         })
     }
 }

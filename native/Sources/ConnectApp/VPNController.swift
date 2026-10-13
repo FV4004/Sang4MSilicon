@@ -44,6 +44,18 @@ private func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
     var noSignal: Int32 = 1; _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
     return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 }
+// FileHandle.read(upToCount:) can wait to fill its buffer on an open stream.
+// One read(2) returns the bytes currently available, including short JSON events.
+func readHelperChunk(_ handle: FileHandle) throws -> Data? {
+    var bytes = [UInt8](repeating: 0, count: 4096)
+    while true {
+        let count = Darwin.read(handle.fileDescriptor, &bytes, bytes.count)
+        if count > 0 { return Data(bytes.prefix(count)) }
+        if count == 0 { return nil }
+        if errno == EINTR { continue }
+        throw VPNError("VPN 控制接口读取失败。")
+    }
+}
 @MainActor final class VPNController {
     private(set) var state = "disconnected"
     private(set) var mode = "tun"
@@ -83,7 +95,8 @@ private func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
                     if !authorization.isRunning { throw VPNError("管理员授权或 VPN 组件启动失败。") }
                     try await Task.sleep(nanoseconds: 100_000_000)
                 }
-                guard socket != nil else { throw VPNError("等待管理员授权超时。") }
+                guard socket != nil else { throw VPNError("管理员授权或控制接口等待超时，请重试。") }
+                publish("connecting", "管理员授权已完成，正在建立 VPN 隧道…")
             } else {
                 let child = Process(); child.executableURL = helper
                 let input = Pipe(), output = Pipe(); child.standardInput = input; child.standardOutput = output; child.standardError = FileHandle.nullDevice
@@ -95,7 +108,7 @@ private func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
             reader = Task.detached { [weak self] in
                 var buffer = Data()
                 do {
-                    while let chunk = try output.read(upToCount: 4096), !chunk.isEmpty {
+                    while let chunk = try readHelperChunk(output), !chunk.isEmpty {
                         buffer.append(chunk); guard buffer.count <= 16384 else { throw VPNError("VPN 状态响应无效。") }
                         while let end = buffer.firstIndex(of: 10) {
                             let line = Data(buffer[..<end]); buffer.removeSubrange(...end)

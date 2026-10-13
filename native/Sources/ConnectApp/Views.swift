@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var model: AppModel
+    @FocusState private var serverFocused: Bool
     let closeSettings: () -> Void
     let quit: () -> Void
     private let accent = Color(red: 0.18, green: 0.42, blue: 0.38)
@@ -27,6 +28,7 @@ struct RootView: View {
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(minWidth: 960, minHeight: 760).background(Color(nsColor: .windowBackgroundColor)).tint(accent)
         .onChange(of: model.server) { _ in model.serverChanged() }
+        .onChange(of: serverFocused) { model.serverEditingChanged($0) }
         .onChange(of: model.username) { value in UserDefaults.standard.set(value, forKey: "username") }
         .onChange(of: model.rememberPassword) { _ in model.rememberChanged() }
         .onChange(of: model.selectedGroup) { _ in model.page = 0 }
@@ -35,7 +37,7 @@ struct RootView: View {
     private var connection: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !model.authenticated {
-                field("VPN 服务器地址") { TextField("https://vpn.example.com 或 http://vpn.example.com:8080", text: $model.server).textFieldStyle(.roundedBorder).disabled(model.busy || model.challenge) }
+                field("VPN 服务器地址") { TextField("https://vpn.example.com 或 http://vpn.example.com:8080", text: $model.server).textFieldStyle(.roundedBorder).focused($serverFocused).onSubmit { serverFocused = false; model.serverEditingChanged(false) }.disabled((model.busy && !model.preparingServer) || model.challenge) }
                 if !model.challenge {
                     field("用户 ID") { TextField("用户名", text: $model.username).textFieldStyle(.roundedBorder).disabled(model.busy) }
                     field("密码") { HStack { SecureField("密码", text: $model.password).textFieldStyle(.roundedBorder); Toggle("记忆密码", isOn: $model.rememberPassword).toggleStyle(.checkbox) }.disabled(model.busy) }
