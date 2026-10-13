@@ -60,3 +60,6 @@ func mchipServerName(server string) string {
 shutil.copyfile(dest / 'LICENSE', ROOT / 'LICENSE')
 shutil.copyfile(dest / 'LICENSE', ROOT / 'app/LICENSE')
 print(f'Prepared zju-connect {REV}; TLS verification and session bounds patches applied')
+# Reproducible protocol/lifecycle fixes, included in the published source archive.
+import runpy
+runpy.run_path(str(ROOT / 'vpn-patches/patch.py'))['apply'](dest, ROOT / 'vpn-patches')

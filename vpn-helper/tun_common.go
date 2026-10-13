@@ -222,7 +222,7 @@ func readIPv4(r io.Reader, buf []byte) ([]byte, error) {
 	n := int(binary.BigEndian.Uint16(buf[2:4]))
 	h := int(buf[0]&15) * 4
 	if buf[0]>>4 != 4 || h < 20 || n < h {
-		return nil, errors.New("invalid IPv4 frame")
+		return nil, errInvalidFrame
 	}
 	if _, e := io.ReadFull(r, buf[20:n]); e != nil {
 		return nil, e

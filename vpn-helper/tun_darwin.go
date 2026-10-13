@@ -198,7 +198,13 @@ func openDevice(ip string) (*nativeDevice, error) {
 	}
 	return device, nil
 }
-func (d *nativeDevice) Close() error               { return d.file.Close() }
+func (d *nativeDevice) Close() error {
+	e := d.file.Close()
+	if errors.Is(e, os.ErrClosed) {
+		return nil
+	}
+	return e
+}
 func (d *nativeDevice) Read(p []byte) (int, error) { return d.file.Read(p) }
 func (d *nativeDevice) Write(p []byte) (int, error) {
 	if !validIPv4(p) {
@@ -325,10 +331,13 @@ func (t *routeTable) add(p netip.Prefix) error {
 	return nil
 }
 func runNativeTun(ctx context.Context, c config, tag string) (result error) {
+	cleanupConfirmed := true
 	defer func() {
 		if recover() != nil {
 			fail("WORKER_PANIC")
-			result = errors.New("worker panic")
+			if !cleanupConfirmed {
+				result = errors.New("worker panic without cleanup confirmation")
+			}
 		}
 	}()
 	log.SetOutput(io.Discard)
@@ -361,7 +370,9 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}()
 	stage("token")
 	if e = vpn.Setup(); e != nil {
-		if certError(e) {
+		if errors.Is(e, easyconnect.ErrMChipSessionExpired) {
+			fail("AUTH_FAILED")
+		} else if certError(e) {
 			fail("TLS_CERT_INVALID")
 		} else {
 			fail("CONNECT_FAILED")
@@ -416,21 +427,28 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	stage("tunnel")
 	send, e := vpn.SendConn()
 	if e != nil {
-		fail("TUNNEL_FAILED")
+		fail(tunnelErrorCode(e))
 		return nil
 	}
 	defer send.Close()
 	recv, e := vpn.RecvConn()
 	if e != nil {
-		fail("TUNNEL_FAILED")
+		fail(tunnelErrorCode(e))
 		return nil
 	}
 	defer recv.Close()
+	tunnel := &packetTunnel{ctx: ctx, send: send, recv: recv,
+		openSend: func() (io.WriteCloser, error) { return vpn.SendConn() },
+		openRecv: func() (io.ReadCloser, error) { return vpn.RecvConn() },
+		retry:    func(direction string) { emit(map[string]string{"event": "retry", "direction": direction}) },
+	}
+	defer tunnel.Close()
 	device, e := openDevice(ip.String())
 	if e != nil {
 		fail("TUN_UNAVAILABLE")
 		return nil
 	}
+	cleanupConfirmed = false
 	table := &routeTable{device: device.name, gateways: map[netip.Addr]bool{}}
 	for _, v := range underlay.addresses {
 		a, _ := netip.AddrFromSlice(v)
@@ -445,10 +463,10 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			dnsServer.Close()
 		}
 		closeErr := device.Close()
-		send.Close()
-		recv.Close()
+		tunnel.Close()
 		cleanupErr := cleanupLease(resolverDir, journal)
 		_, _ = systemCommand("/usr/bin/dscacheutil", "-flushcache")
+		cleanupConfirmed = closeErr == nil && cleanupErr == nil
 		if closeErr != nil || cleanupErr != nil {
 			fail("CLEANUP_FAILED")
 			result = errors.New("network cleanup failed")
@@ -491,14 +509,9 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			}
 			packet := buf[4:n]
 			if !validIPv4(packet) {
-				errs <- errors.New("invalid local frame")
-				return
+				continue // Drop malformed local packets without terminating a healthy tunnel.
 			}
-			if written, writeErr := send.Write(packet); writeErr != nil || written != len(packet) {
-				e = writeErr
-				if e == nil {
-					e = io.ErrShortWrite
-				}
+			if e := tunnel.WritePacket(packet); e != nil {
 				errs <- e
 				return
 			}
@@ -508,7 +521,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		defer reportPacketWorkerPanic(errs)
 		buf := make([]byte, 65535)
 		for {
-			p, e := readIPv4(recv, buf)
+			p, e := tunnel.ReadPacket(buf)
 			if e != nil {
 				errs <- e
 				return
@@ -530,7 +543,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		if errors.Is(err, errPacketWorkerPanic) {
 			fail("WORKER_PANIC")
 		} else {
-			fail("TUNNEL_FAILED")
+			fail(tunnelErrorCode(err))
 		}
 		return nil
 	}
@@ -594,4 +607,20 @@ func tunStdio() error {
 		emit(map[string]string{"event": "stopped"})
 	}
 	return e
+}
+
+func tunnelErrorCode(err error) string {
+	if errors.Is(err, easyconnect.ErrSangforShutdown) || errors.Is(err, easyconnect.ErrSangforReconnectLater) || errors.Is(err, easyconnect.ErrMChipSessionExpired) {
+		return "AUTH_FAILED"
+	}
+	if errors.Is(err, errInvalidFrame) {
+		return "TUN_FRAME_INVALID"
+	}
+	if certError(err) {
+		return "TLS_CERT_INVALID"
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "TUN_REMOTE_CLOSED"
+	}
+	return "TUNNEL_FAILED"
 }
