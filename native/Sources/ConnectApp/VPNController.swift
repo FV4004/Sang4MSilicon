@@ -5,7 +5,7 @@ import Darwin
 func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 func appleQuote(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r") + "\"" }
 func helperInstallScript(source: String, hash: String, socket: String, uid: uid_t) throws -> String {
-    guard hash.count == 64, hash.allSatisfy({ $0.isHexDigit }), uid > 0, socket.range(of: "^/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-[a-f0-9]{32}\\.sock$", options: .regularExpression) != nil else { throw VPNError("VPN 安装参数无效。") }
+    guard hash.count == 64, hash.allSatisfy({ $0.isHexDigit }), uid > 0, socket.range(of: "^/var/run/mchip-vpn/\(uid)-[a-f0-9]{32}\\.sock$", options: .regularExpression) != nil else { throw VPNError("VPN 安装参数无效。") }
     let destination = "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-helper"
     return """
     set -eu
