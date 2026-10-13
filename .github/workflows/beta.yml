@@ -1,7 +1,7 @@
 name: macOS arm64 beta
 on:
   push:
-    branches: ['main', 'feature/resource-catalog-and-lifecycle']
+    branches: ['feature/resource-catalog-and-lifecycle']
     tags: ['v0.1.*', 'v0.2.*', 'v0.3.*', 'v0.4.*']
   workflow_dispatch:
 permissions:
