@@ -31,3 +31,34 @@ test('corrupt or credential-bearing saved values and symlink preferences are ign
   assert.equal(await prefs.readServer(), ''); await prefs.saveServer('https://vpn.example.com');
   assert.equal(await fs.readFile(outside, 'utf8'), '{"server":"http://vpn.example.com"}'); assert.equal((await fs.lstat(prefs.file)).isSymbolicLink(), false);
 });
+test('main remembers a validated address before failed gateway initialization and rejects foreign IPC', async t => {
+  const {EventEmitter} = require('node:events');
+  const vm = require('node:vm');
+  const {pathToFileURL} = require('node:url');
+  const dir = await workspace(t), handlers = new Map(), appDirectory = path.resolve(__dirname, '../app');
+  let window;
+  class FakeWindow {
+    constructor() { window = this; this.webContents = {mainFrame: {url: pathToFileURL(path.join(appDirectory, 'index.html')).href}, setWindowOpenHandler() {}, on() {}, send() {}}; }
+    removeMenu() {} loadFile() {} on() {}
+  }
+  class FakeVpn extends EventEmitter { constructor() { super(); this.status = {state: 'disconnected'}; } async stop() {} }
+  class FakeAuth { constructor(server) { this.base = new URL(server); } close() {} async initialize() { throw new Error('Gateway offline'); } }
+  const electron = {app: {isPackaged: false, setName() {}, requestSingleInstanceLock: () => true, whenReady: async () => {}, on() {}, getPath: () => dir}, BrowserWindow: FakeWindow, ipcMain: {handle: (name, fn) => handlers.set(name, fn)}, shell: {}, dialog: {}};
+  const source = await fs.readFile(path.join(appDirectory, 'main.cjs'), 'utf8');
+  vm.runInNewContext(source, {__dirname: appDirectory, require(name) {
+    if (name === 'electron') return electron;
+    if (name === './preferences.cjs') return {Preferences};
+    if (name === './auth.cjs') return {AuthClient: FakeAuth};
+    if (name === './vpn.cjs') return {VpnSupervisor: FakeVpn};
+    if (name === './tun-launcher.cjs') return {spawnTun() { throw new Error('TUN must not launch during login'); }};
+    return require(name);
+  }});
+  await new Promise(resolve => setImmediate(resolve));
+  const invoke = handlers.get('auth:call'), event = {sender: window.webContents, senderFrame: window.webContents.mainFrame};
+  await assert.rejects(invoke({sender: {}, senderFrame: {}}, {action: 'initialize', data: {server: 'http://untrusted.example'}}), /来源无效/);
+  assert.equal(await new Preferences(dir).readServer(), '');
+  const result = await invoke(event, {action: 'initialize', data: {server: 'https://vpn.example.com:8443'}});
+  assert.equal(result.ok, false); assert.equal(result.error, 'Gateway offline'); assert.equal(await new Preferences(dir).readServer(), 'https://vpn.example.com:8443');
+  const invalid = await invoke(event, {action: 'initialize', data: {server: 'http://username:password@vpn.example.com'}});
+  assert.equal(invalid.ok, false); assert.equal(await new Preferences(dir).readServer(), 'https://vpn.example.com:8443');
+});

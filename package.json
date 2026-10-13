@@ -1,7 +1,7 @@
 {
   "name": "m-chip-vpn-login",
-  "version": "0.2.0-beta.2",
-  "description": "Apple Silicon EasyConnect-compatible VPN with HTTP/HTTPS authentication and local proxies",
+  "version": "0.3.0-beta.1",
+  "description": "Open-source educational Apple Silicon VPN client with TUN and local proxies",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.cjs",

@@ -28,6 +28,11 @@ jobs:
       - run: python3 scripts/prepare-vpn.py
       - run: go test -race ./...
         working-directory: vpn-helper
+      - name: Exercise native UTUN on isolated macOS runner
+        run: |
+          go test -c -o ../.build/mchip-helper.test .
+          sudo env MCHIP_TUN_SMOKE=1 ../.build/mchip-helper.test -test.run '^TestNativeUTUNSmoke$' -test.v
+        working-directory: vpn-helper
       - run: go test ./client/easyconnect ./stack/gvisor ./resolve ./dial
         working-directory: .build/zju-connect
       - name: Build native VPN helper
@@ -48,24 +53,27 @@ jobs:
           codesign --force --sign - "$app_path/Contents/Resources/bin/mchip-vpn-helper"
           codesign --verify --strict "$app_path/Contents/Resources/bin/mchip-vpn-helper"
           codesign --force --deep --sign - --entitlements scripts/entitlements.plist "$app_path"
+          shasum -a 256 "$app_path/Contents/Resources/bin/mchip-vpn-helper" | awk '{print $1}' > "$app_path/Contents/Resources/bin/mchip-vpn-helper.sha256"
+          codesign --force --sign - --entitlements scripts/entitlements.plist "$app_path"
           codesign --verify --deep --strict "$app_path"
+          node scripts/verify-package.cjs "$app_path"
           node -e 'const fs = require("node:fs"); const p="dist/build-info.json"; const m=JSON.parse(fs.readFileSync(p)); m.adHocSigned=true; m.developerIdSigned=false; m.commit=process.env.GITHUB_SHA; fs.writeFileSync(p,JSON.stringify(m,null,2));'
       - name: Create distribution archive
         shell: bash
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.2.0-beta.2-mac-arm64.zip'
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist/MChipVPNLogin-0.2.0-beta.2-source.zip
+          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.3.0-beta.1-mac-arm64.zip'
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist/MChipVPNLogin-0.3.0-beta.1-source.zip
           cp .build/upstream.tar.gz dist/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist/compress-1.18.6-source.tar.gz
           cd dist
-          shasum -a 256 MChipVPNLogin-0.2.0-beta.2-mac-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 MChipVPNLogin-0.3.0-beta.1-mac-arm64.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: MChipVPNLogin-mac-arm64-beta
           path: |
-            dist/MChipVPNLogin-0.2.0-beta.2-mac-arm64.zip
-            dist/MChipVPNLogin-0.2.0-beta.2-source.zip
+            dist/MChipVPNLogin-0.3.0-beta.1-mac-arm64.zip
+            dist/MChipVPNLogin-0.3.0-beta.1-source.zip
             dist/*-source.tar.gz
             dist/SHA256SUMS.txt
             dist/build-info.json
@@ -85,6 +93,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          release_tag="v0.2.0-beta.2"
+          release_tag="v0.3.0-beta.1"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then release_tag="$GITHUB_REF_NAME"; fi
-          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Apple Silicon HTTP/HTTPS authentication beta. Remembers only the VPN server address, fetches captcha automatically on reopen, places captcha below password, and preserves entered credentials on login failure. Includes EasyConnect legacy L3/TCP data transport with local SOCKS5 CONNECT and HTTP proxies. No system routing changes. No Developer ID signing or Apple notarization. Local authentication, lifecycle and proxy tests passed; actual gateway data transport requires user testing. AGPL-3.0 source and upstream source archives included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json
+          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Open-source educational macOS arm64 beta. Adds native IPv4 UTUN resource routing, split DNS, administrator authorization and owned-network recovery. Full-window interface with immersive title bar and no commercial VPN branding. Preserves HTTP/HTTPS login, remembered server and captcha UX. Includes local proxy fallback. Native UTUN smoke test, Node/Go tests, architecture and ad-hoc signing checks passed. No Apple Developer ID or notarization; actual gateway traffic requires user testing. AGPL source archives included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json

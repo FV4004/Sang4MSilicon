@@ -32,6 +32,7 @@ import (
 )
 
 type config struct {
+	Mode      string `json:"mode"`
 	Server    string `json:"server"`
 	SessionID string `json:"sessionId"`
 	SocksPort int    `json:"socksPort"`
@@ -40,8 +41,9 @@ type config struct {
 type dialFunc func(context.Context, string, string) (net.Conn, error)
 
 var eventMu sync.Mutex
+var eventOutput io.Writer = os.Stdout
 
-func emit(v any)       { eventMu.Lock(); defer eventMu.Unlock(); _ = json.NewEncoder(os.Stdout).Encode(v) }
+func emit(v any)       { eventMu.Lock(); defer eventMu.Unlock(); _ = json.NewEncoder(eventOutput).Encode(v) }
 func stage(s string)   { emit(map[string]string{"event": "stage", "stage": s}) }
 func fail(code string) { emit(map[string]string{"event": "error", "code": code}) }
 func validate(c config) error {
@@ -53,10 +55,13 @@ func validate(c config) error {
 	if err != nil || n < 1 || n > 65535 {
 		return errors.New("invalid server port")
 	}
-	if len(c.SessionID) != 16 || strings.ContainsAny(c.SessionID, "\r\n") {
+	if len(c.SessionID) != 16 || strings.ContainsAny(c.SessionID, "\r\n\x00") {
 		return errors.New("unsupported session")
 	}
-	if c.SocksPort < 1024 || c.SocksPort > 65535 || c.HTTPPort < 1024 || c.HTTPPort > 65535 || c.SocksPort == c.HTTPPort {
+	if c.Mode != "" && c.Mode != "proxy" && c.Mode != "tun" {
+		return errors.New("invalid mode")
+	}
+	if c.Mode != "tun" && (c.SocksPort < 1024 || c.SocksPort > 65535 || c.HTTPPort < 1024 || c.HTTPPort > 65535 || c.SocksPort == c.HTTPPort) {
 		return errors.New("invalid proxy ports")
 	}
 	return nil
@@ -87,6 +92,10 @@ func certError(err error) bool {
 	return errors.As(err, &unknown) || errors.As(err, &invalid) || errors.As(err, &hostname)
 }
 func run(c config) error {
+	if c.Mode == "tun" {
+		fail("TUN_UNAVAILABLE")
+		return errors.New("TUN requires privileged control socket")
+	}
 	if err := validate(c); err != nil {
 		fail("UNSUPPORTED_SESSION")
 		return err
@@ -210,8 +219,14 @@ func run(c config) error {
 	}
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--tun-control" {
+		if tunControl(os.Args[2:]) != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Println("mchip-vpn-helper 0.2.0-beta.2; zju-connect c19eb4ed")
+		fmt.Println("mchip-vpn-helper 0.3.0-beta.1; zju-connect c19eb4ed")
 		return
 	}
 	// A single bounded stdin record carries the session; never argv, env or a file.

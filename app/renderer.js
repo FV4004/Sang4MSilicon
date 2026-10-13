@@ -1,14 +1,19 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let recoveryPending = false;
 let phase = 'idle', busy = false, preparedServer = '', required = false, vpnState = {state: 'disconnected'};
 function message(text, kind = '') { $('feedback').textContent = text; $('feedback').className = 'feedback ' + kind; }
 function controls() {
-  $('transport-notice').hidden = !/^http:\/\//i.test($('server').value.trim());
-  $('prepare').disabled = busy || phase === 'authenticated';
+  $('recover-network').hidden = !recoveryPending && vpnState.code !== 'CLEANUP_FAILED';
+  $('recover-network').disabled = busy;
+  $('login-form').hidden = phase === 'authenticated';
+  $('panel-title').textContent = phase === 'authenticated' ? '连接你的网络' : '登录 VPN 网关';
+  $('transport-notice').hidden = phase === 'authenticated' || !/^http:\/\//i.test($('server').value.trim());
+  $('prepare').disabled = busy || recoveryPending || phase === 'authenticated';
   $('server').disabled = busy || ['challenge', 'unsupported', 'authenticated'].includes(phase);
   for (const id of ['username', 'password', 'captcha']) $(id).disabled = busy || phase === 'authenticated' || phase === 'challenge';
   $('refresh').disabled = busy || phase !== 'ready';
-  $('submit').disabled = busy || !['ready', 'challenge'].includes(phase);
+  $('submit').disabled = busy || recoveryPending || !['ready', 'challenge'].includes(phase);
   $('submit').textContent = busy ? '正在处理…' : phase === 'challenge' ? '提交后续认证' : '登录';
   $('challenge').disabled = busy;
   $('challenge-area').hidden = phase !== 'challenge';
@@ -22,6 +27,15 @@ function controls() {
   $('vpn-connect').hidden = vpnActive;
   $('vpn-disconnect').hidden = !vpnActive;
   $('vpn-disconnect').disabled = vpnState.state === 'stopping';
+  const tun = $('vpn-mode').value === 'tun';
+  $('vpn-mode').disabled = busy || vpnActive;
+  $('tun-notice').hidden = !tun;
+  $('socks-port-area').hidden = tun; $('http-port-area').hidden = tun;
+  document.querySelector('.port-grid').classList.toggle('tun', tun);
+  $('mode-hint').textContent = tun ? 'TUN 模式无需单独配置应用代理；断开后恢复本次添加的路由与内网 DNS。' : '当前为本地代理模式，不修改系统路由。仅使用代理的应用流量进入 VPN；SOCKS5 暂不支持 UDP。';
+  const connectedTun = vpnState.mode === 'tun';
+  for (const id of ['socks-label', 'vpn-socks', 'http-label', 'vpn-http']) $(id).hidden = connectedTun;
+  for (const id of ['interface-label', 'vpn-interface', 'route-label', 'vpn-routes', 'dns-label', 'vpn-dns']) $(id).hidden = !connectedTun;
   for (const id of ['tunnel-port', 'socks-port', 'http-port']) $(id).disabled = busy || vpnActive;
   $('vpn-addresses').hidden = vpnState.state !== 'connected';
   $('vpn-badge').textContent = ({connecting: '正在连接', connected: '已连接', stopping: '正在断开', error: '连接失败'})[vpnState.state] || '未连接';
@@ -63,7 +77,7 @@ $('login-form').addEventListener('submit', e => {
     phase = r.phase; $('challenge').value = '';
     if (phase === 'authenticated') $('password').value = '';
     if (phase === 'challenge') { $('captcha-area').hidden = true; $('captcha').required = false; $('password').required = false; $('challenge-name').textContent = r.nextService; }
-    message(phase === 'authenticated' ? '认证成功，可以连接 VPN 本地代理。' : r.message, phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
+    message(phase === 'authenticated' ? '认证成功，可以连接 VPN。' : r.message, phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
   });
 });
 $('logout').addEventListener('click', () => operation(async () => {
@@ -74,19 +88,22 @@ controls();
 
 function updateVpn(status) {
   vpnState = status;
-  const stages = {token: '正在获取隧道会话…', ip: '正在读取 VPN 资源与虚拟地址…', tunnel: '正在建立数据隧道…'};
+  const stages = {token: '正在获取隧道会话…', ip: '正在读取 VPN 资源与虚拟地址…', tunnel: '正在建立数据隧道…', routes: '正在配置内网路由与 DNS…'};
   const area = $('vpn-feedback');
   area.className = 'feedback' + (status.code || status.state === 'error' ? ' error' : status.state === 'connected' ? ' success' : '');
-  area.textContent = status.message || (status.state === 'connecting' ? stages[status.stage] || '正在连接 VPN…' : status.state === 'connected' ? status.mode === 'tcp' ? 'TCP 代理已启动（按需建连）。' : 'VPN 数据隧道已建立，本地代理可用。' : status.state === 'stopping' ? '正在关闭数据隧道…' : 'VPN 已断开。');
+  area.textContent = status.message || (status.state === 'connecting' ? stages[status.stage] || '正在连接 VPN…' : status.state === 'connected' ? status.mode === 'tcp' ? 'TCP 代理已启动（按需建连）。' : status.mode === 'tun' ? '系统 TUN 已连接，内网资源可直接访问。' : 'VPN 数据隧道已建立，本地代理可用。' : status.state === 'stopping' ? '正在关闭数据隧道…' : 'VPN 已断开。');
   $('vpn-ip').textContent = status.ip || (status.mode === 'tcp' ? '按需 TCP 连接' : '—');
   $('vpn-socks').textContent = status.socksAddress || '';
   $('vpn-http').textContent = status.httpAddress || '';
+  $('vpn-interface').textContent = status.interface || '';
+  $('vpn-routes').textContent = status.routeCount === undefined ? '' : String(status.routeCount);
+  $('vpn-dns').textContent = status.dnsCount === undefined ? '' : String(status.dnsCount);
   controls();
 }
 window.vpnAuth.onVpnStatus(updateVpn);
 window.vpnAuth.vpnStatus().then(result => { if (result.ok) updateVpn(result.value); });
 $('vpn-connect').addEventListener('click', () => operation(async () => {
-  const data = {tunnelPort: Number($('tunnel-port').value), socksPort: Number($('socks-port').value), httpPort: Number($('http-port').value)};
+  const data = {mode: $('vpn-mode').value, tunnelPort: Number($('tunnel-port').value), socksPort: Number($('socks-port').value), httpPort: Number($('http-port').value)};
   const result = await window.vpnAuth.connectVpn(data);
   if (!result.ok) { $('vpn-feedback').textContent = result.error; $('vpn-feedback').className = 'feedback error'; return; }
   // Live status events own connection state, including exits racing this response.
@@ -96,15 +113,24 @@ $('vpn-disconnect').addEventListener('click', async () => {
 });
 $('licenses').addEventListener('click', () => window.vpnAuth.openLicenses());
 
+$('vpn-mode').addEventListener('change', controls);
 function canAutoPrepare(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !!u.hostname && !u.username && !u.password && !u.search && !u.hash && u.pathname === '/'; } catch { return false; }
 }
 $('server').addEventListener('blur', () => {
   const value = $('server').value.trim();
-  if (!busy && phase === 'idle' && canAutoPrepare(value)) void operation(prepare);
+  if (!busy && !recoveryPending && phase === 'idle' && canAutoPrepare(value)) void operation(prepare);
 });
 window.vpnAuth.readSavedServer().then(result => {
-  if (!result.ok || !$('server') || $('server').value || busy || phase !== 'idle') return;
+  if (!result.ok || !$('server')) return;
+  recoveryPending = !!result.value.recoveryRequired;
   const value = result.value.server;
+  if(recoveryPending){if(!$('server').value)$('server').value=value||'';message('上次连接未完整退出，请先恢复网络配置。','error');controls();return;}
+  if ($('server').value || busy || phase !== 'idle') return;
   if (canAutoPrepare(value)) { $('server').value = value; void operation(prepare); }
 }).catch(() => {});
+
+$('recover-network').addEventListener('click',()=>operation(async()=>{
+ unpack(await window.vpnAuth.recoverNetwork());recoveryPending=false;vpnState={state:'disconnected'};
+ if(canAutoPrepare($('server').value.trim()))await prepare();else message('网络配置已恢复，可以重新登录。');
+}));

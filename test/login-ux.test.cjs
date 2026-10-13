@@ -5,12 +5,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const script = fs.readFileSync(path.join(__dirname, '../app/renderer.js'), 'utf8');
+const pageHTML = fs.readFileSync(path.join(__dirname, '../app/index.html'), 'utf8');
+const validIDs = new Set(Array.from(pageHTML.matchAll(/id="([^"]+)"/g), match => match[1]));
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function page({saved = '', login = {ok: false, error: '认证失败（20004）'}, initialize} = {}) {
+function page({saved = '', recoveryRequired = false, login = {ok: false, error: '认证失败（20004）'}, initialize} = {}) {
   const elements = new Map();
-  function get(id) { if (!elements.has(id)) elements.set(id, {value: id === 'vpn-mode' ? 'tun' : '', hidden: false, disabled: false, textContent: '', className: '', required: false, classList: {toggle() {}}, listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, removeAttribute(name) { delete this[name]; }}); return elements.get(id); }
+  function get(id) { assert.ok(validIDs.has(id), 'Missing actual HTML element: ' + id); if (!elements.has(id)) elements.set(id, {value: id === 'vpn-mode' ? 'tun' : '', hidden: false, disabled: false, textContent: '', className: '', required: false, classList: {toggle() {}}, listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, removeAttribute(name) { delete this[name]; }}); return elements.get(id); }
   const calls = {initialize: [], login: []};
-  const api = {readSavedServer: async () => ({ok: true, value: {server: saved}}), initialize: async value => { calls.initialize.push(value); return initialize || {ok: true, value: {server: value, captchaRequired: true, captchaImage: 'data:image/png;base64,real'}}; }, login: async value => { calls.login.push(value); return login; }, onVpnStatus() {}, vpnStatus: async () => ({ok: true, value: {state: 'disconnected'}}), logout: async () => ({ok: true}), captcha: async () => ({ok: true, value: {captchaImage: 'data:image/png;base64,refresh'}})};
+  const api = {readSavedServer: async () => ({ok: true, value: {server: saved, recoveryRequired}}), initialize: async value => { calls.initialize.push(value); return initialize || {ok: true, value: {server: value, captchaRequired: true, captchaImage: 'data:image/png;base64,real'}}; }, login: async value => { calls.login.push(value); return login; }, onVpnStatus() {}, vpnStatus: async () => ({ok: true, value: {state: 'disconnected'}}), recoverNetwork: async () => ({ok:true,value:{recovered:true}}), logout: async () => ({ok: true}), captcha: async () => ({ok: true, value: {captchaImage: 'data:image/png;base64,refresh'}})};
   vm.runInNewContext(script, {document: {getElementById: get, querySelector: () => ({classList: {toggle() {}}})}, window: {vpnAuth: api}, URL});
   return {get, calls, api};
 }
@@ -41,4 +43,11 @@ test('successful final authentication and explicit logout erase password only in
 test('gateway without captcha can still authenticate', async () => {
   const x = page({saved: 'https://vpn.example.com', initialize: {ok: true, value: {server: 'https://vpn.example.com', captchaRequired: false}}}); await tick(); await tick();
   assert.equal(x.get('captcha-area').hidden, true); assert.equal(x.get('captcha').required, false); assert.equal(x.get('submit').disabled, false);
+});
+
+test('pending crash recovery blocks automatic gateway access until privileged recovery succeeds', async()=>{
+ const x=page({saved:'https://vpn.example.com',recoveryRequired:true});await tick();await tick();
+ assert.equal(x.calls.initialize.length,0);assert.equal(x.get('recover-network').hidden,false);assert.equal(x.get('prepare').disabled,true);
+ await x.get('recover-network').listeners.click();await tick();
+ assert.equal(x.calls.initialize.length,1);assert.equal(x.get('recover-network').hidden,true);
 });
