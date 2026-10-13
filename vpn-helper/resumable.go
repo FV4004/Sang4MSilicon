@@ -47,6 +47,9 @@ func (t *packetTunnel) Close() {
 }
 func (t *packetTunnel) replace(direction string) error {
 	for attempt := 0; attempt < 3; attempt++ {
+		if err := t.ctx.Err(); err != nil {
+			return err
+		}
 		select {
 		case <-t.ctx.Done():
 			return t.ctx.Err()
@@ -99,6 +102,9 @@ func (t *packetTunnel) replace(direction string) error {
 	return errors.New("data channel reconnect exhausted")
 }
 func (t *packetTunnel) ReadPacket(buf []byte) ([]byte, error) {
+	if err := t.ctx.Err(); err != nil {
+		return nil, err
+	}
 	for attempt := 0; attempt < 4; attempt++ {
 		t.mu.Lock()
 		conn := t.recv
@@ -122,6 +128,9 @@ func (t *packetTunnel) ReadPacket(buf []byte) ([]byte, error) {
 	return nil, io.ErrUnexpectedEOF
 }
 func (t *packetTunnel) WritePacket(packet []byte) error {
+	if err := t.ctx.Err(); err != nil {
+		return err
+	}
 	t.mu.Lock()
 	conn := t.send
 	closed := t.closed
