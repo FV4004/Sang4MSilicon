@@ -75,15 +75,15 @@ func serviceInstallScript(helper: String, helperHash: String, broker: String, br
     }
     guard serviceInstalled(uid: uid, client: identity, helper: helperHash, broker: brokerHash) else { throw VPNError("Service manifest check failed") }
     let untrusted = Process(); untrusted.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-    untrusted.arguments = ["-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/var/run/mchip-vpn/\(uid)-service.sock'); assert s.recv(1)==b''"]
+    untrusted.arguments = ["-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-service.sock'); assert s.recv(1)==b''"]
     // Wait for launchd before checking a different executable with the same UID.
-    for _ in 0..<200 { if FileManager.default.fileExists(atPath: "/var/run/mchip-vpn/\(uid)-service.sock") { break }; try await Task.sleep(nanoseconds: 50_000_000) }
+    for _ in 0..<200 { if FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-service.sock") { break }; try await Task.sleep(nanoseconds: 50_000_000) }
     try untrusted.run(); while untrusted.isRunning { try await Task.sleep(nanoseconds: 50_000_000) }
     guard untrusted.terminationStatus == 0 else { throw VPNError("Untrusted-client rejection failed") }
     for _ in 0..<2 {
         var control: FileHandle?
         for _ in 0..<200 {
-            control = try connectSocket("/var/run/mchip-vpn/\(uid)-service.sock", uid: uid)
+            control = try connectSocket("/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-service.sock", uid: uid)
             if control != nil { break }; try await Task.sleep(nanoseconds: 50_000_000)
         }
         guard let control else { throw VPNError("Service socket unavailable") }

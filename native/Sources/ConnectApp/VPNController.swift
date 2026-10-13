@@ -5,7 +5,7 @@ import Darwin
 func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 func appleQuote(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r") + "\"" }
 func helperInstallScript(source: String, hash: String, socket: String, uid: uid_t) throws -> String {
-    guard hash.count == 64, hash.allSatisfy({ $0.isHexDigit }), uid > 0, socket.range(of: "^/var/run/mchip-vpn/\(uid)-[a-f0-9]{32}\\.sock$", options: .regularExpression) != nil else { throw VPNError("VPN 安装参数无效。") }
+    guard hash.count == 64, hash.allSatisfy({ $0.isHexDigit }), uid > 0, socket.range(of: "^/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-[a-f0-9]{32}\\.sock$", options: .regularExpression) != nil else { throw VPNError("VPN 安装参数无效。") }
     let destination = "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-helper"
     return """
     set -eu
@@ -31,7 +31,7 @@ func helperInstallScript(source: String, hash: String, socket: String, uid: uid_
 }
 func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
     var directory = stat(); var file = stat()
-    guard lstat("/var/run/mchip-vpn", &directory) == 0, lstat(path, &file) == 0 else { if errno == ENOENT { return nil }; throw VPNError("无法检查 VPN 控制接口。") }
+    guard lstat("/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control", &directory) == 0, lstat(path, &file) == 0 else { if errno == ENOENT { return nil }; throw VPNError("无法检查 VPN 控制接口。") }
     guard directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == 0, directory.st_mode & 0o022 == 0, file.st_mode & S_IFMT == S_IFSOCK, file.st_uid == uid, file.st_mode & 0o777 == 0o600 else { throw VPNError("VPN 控制接口权限无效。") }
     let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0); guard fd >= 0 else { throw VPNError("无法创建 VPN 控制连接。") }
     var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
@@ -86,7 +86,7 @@ func readHelperChunk(_ handle: FileHandle) throws -> Data? {
         if mode == "proxy" { guard (1024...65535).contains(socksPort), (1024...65535).contains(httpPort), socksPort != httpPort else { publish("disconnected", "代理端口无效"); throw VPNError("代理端口必须不同且为 1024 至 65535。") }; config["socksPort"] = socksPort; config["httpPort"] = httpPort }
         do {
             if mode == "tun" {
-                let uid = getuid(); let path = "/var/run/mchip-vpn/\(uid)-service.sock"
+                let uid = getuid(); let path = "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-service.sock"
                 let broker = resources.appendingPathComponent("bin/mchip-vpn-broker")
                 let brokerHash = SHA256.hash(data: try Data(contentsOf: broker)).map { String(format: "%02x", $0) }.joined()
                 let brokerExpected = try String(contentsOf: resources.appendingPathComponent("bin/mchip-vpn-broker.sha256"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)

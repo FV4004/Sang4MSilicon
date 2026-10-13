@@ -70,11 +70,11 @@ func serve(_ fd: Int32, helper: String) {
         guard geteuid() == 0, args.count == 4, let uid = uid_t(args[1]), uid > 0,
               args[2].range(of: "^[a-f0-9]{40}$", options: .regularExpression) != nil,
               args[3] == "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-helper" else { exit(64) }
-        let path = "/var/run/mchip-vpn/\(uid)-service.sock"
+        let path = "/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control/\(uid)-service.sock"
         do {
-            try secure(args[3]); try secure("/Library/PrivilegedHelperTools", directory: true); try secure("/var/run", directory: true)
-            if mkdir("/var/run/mchip-vpn", 0o755) != 0 && errno != EEXIST { exit(70) }
-            try secure("/var/run/mchip-vpn", directory: true)
+            try secure(args[3]); try secure("/Library/PrivilegedHelperTools", directory: true)
+            if mkdir("/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control", 0o755) != 0 && errno != EEXIST { exit(70) }
+            try secure("/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control", directory: true)
         } catch { exit(70) }
         let listener = Darwin.socket(AF_UNIX, SOCK_STREAM, 0); guard listener >= 0 else { exit(71) }
         _ = unlink(path)
