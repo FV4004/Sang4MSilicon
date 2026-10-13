@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	easyconnect "github.com/mythologyli/zju-connect/client/easyconnect"
 	"io"
 	"net"
 	"testing"
@@ -62,5 +64,34 @@ func TestPacketReconnectStopsOnCancellationOrMalformedFrame(t *testing.T) {
 	tunnel.recv = testReadCloser{bytes.NewReader(bad)}
 	if _, err := tunnel.ReadPacket(make([]byte, 65535)); err != errInvalidFrame || calls != 0 {
 		t.Fatal("malformed frames were retried")
+	}
+}
+
+func TestPacketReconnectRetriesDelayAndPreservesShutdown(t *testing.T) {
+	fresh := packet([]byte("response"))
+	calls := 0
+	tunnel := packetTunnel{ctx: context.Background(), recv: testReadCloser{bytes.NewReader(nil)}, openRecv: func() (io.ReadCloser, error) {
+		calls++
+		if calls == 1 {
+			return nil, easyconnect.ErrSangforReconnectLater
+		}
+		return testReadCloser{bytes.NewReader(fresh)}, nil
+	}}
+	got, err := tunnel.ReadPacket(make([]byte, 65535))
+	if err != nil || calls != 2 || !bytes.Equal(got, fresh) {
+		t.Fatalf("temporary rejection not recovered: %v", err)
+	}
+	calls = 0
+	tunnel.recv = testReadCloser{bytes.NewReader(nil)}
+	tunnel.openRecv = func() (io.ReadCloser, error) { calls++; return nil, easyconnect.ErrSangforShutdown }
+	if _, err = tunnel.ReadPacket(make([]byte, 65535)); !errors.Is(err, easyconnect.ErrSangforShutdown) || calls != 1 {
+		t.Fatal("terminal shutdown was retried or lost")
+	}
+}
+func TestPacketReconnectExhaustionRetainsTemporaryReject(t *testing.T) {
+	tunnel := packetTunnel{ctx: context.Background(), recv: testReadCloser{bytes.NewReader(nil)}, openRecv: func() (io.ReadCloser, error) { return nil, easyconnect.ErrSangforReconnectLater }}
+	_, err := tunnel.ReadPacket(make([]byte, 65535))
+	if !errors.Is(err, easyconnect.ErrSangforReconnectLater) {
+		t.Fatal("temporary rejection misclassified after retries")
 	}
 }

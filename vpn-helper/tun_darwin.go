@@ -371,7 +371,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	stage("token")
 	if e = vpn.Setup(); e != nil {
 		if errors.Is(e, easyconnect.ErrMChipSessionExpired) {
-			fail("AUTH_FAILED")
+			fail("TUN_SESSION_EXPIRED")
 		} else if certError(e) {
 			fail("TLS_CERT_INVALID")
 		} else {
@@ -611,8 +611,14 @@ func tunStdio() error {
 }
 
 func tunnelErrorCode(err error) string {
-	if errors.Is(err, easyconnect.ErrSangforShutdown) || errors.Is(err, easyconnect.ErrSangforReconnectLater) || errors.Is(err, easyconnect.ErrMChipSessionExpired) {
-		return "AUTH_FAILED"
+	if errors.Is(err, easyconnect.ErrSangforShutdown) {
+		return "TUN_SERVER_SHUTDOWN"
+	}
+	if errors.Is(err, easyconnect.ErrSangforReconnectLater) {
+		return "TUN_RECONNECT_LATER"
+	}
+	if errors.Is(err, easyconnect.ErrMChipSessionExpired) {
+		return "TUN_SESSION_EXPIRED"
 	}
 	if errors.Is(err, errInvalidFrame) {
 		return "TUN_FRAME_INVALID"

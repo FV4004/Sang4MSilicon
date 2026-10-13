@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	easyconnect "github.com/mythologyli/zju-connect/client/easyconnect"
 	"io"
 	"net"
 	"sync"
@@ -26,6 +27,9 @@ type packetTunnel struct {
 }
 
 func retryableStreamError(err error) bool {
+	if errors.Is(err, easyconnect.ErrSangforReconnectLater) {
+		return true
+	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.ErrShortWrite) {
 		return true
 	}
@@ -47,6 +51,7 @@ func (t *packetTunnel) Close() {
 	}
 }
 func (t *packetTunnel) replace(direction string) error {
+	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := t.ctx.Err(); err != nil {
 			return err
@@ -54,7 +59,7 @@ func (t *packetTunnel) replace(direction string) error {
 		select {
 		case <-t.ctx.Done():
 			return t.ctx.Err()
-		case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+		case <-time.After(time.Duration(attempt) * time.Second):
 		}
 		t.mu.Lock()
 		if t.closed {
@@ -68,6 +73,7 @@ func (t *packetTunnel) replace(direction string) error {
 		if direction == "recv" {
 			conn, err := t.openRecv()
 			if err != nil {
+				lastErr = err
 				if !retryableStreamError(err) {
 					return err
 				}
@@ -88,6 +94,7 @@ func (t *packetTunnel) replace(direction string) error {
 		}
 		conn, err := t.openSend()
 		if err != nil {
+			lastErr = err
 			if !retryableStreamError(err) {
 				return err
 			}
@@ -105,6 +112,9 @@ func (t *packetTunnel) replace(direction string) error {
 			t.resumed(direction)
 		}
 		return nil
+	}
+	if lastErr != nil {
+		return lastErr
 	}
 	return errors.New("data channel reconnect exhausted")
 }

@@ -44,10 +44,10 @@ jobs:
       - name: Verify source provenance and archive
         run: |
           set -euo pipefail
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.9-source.zip
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.10-source.zip
           cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
-          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.9-mac-universal.zip
+          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.10-mac-universal.zip
           cd dist-native
           shasum -a 256 *.zip *-source.tar.gz build-info.json > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -78,4 +78,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          gh release create v0.5.0-beta.9 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title 'Connect v0.5.0-beta.9 · Swift native Universal' --notes 'Adds bounded data-channel reconnection at IPv4 packet boundaries; partial frames are discarded and ambiguous writes are not replayed. Expired resource responses and missing attributes no longer trigger parser panics; shutdown/re-login responses receive authentication errors. Session keepalive interval is 20 seconds; cancellation deadline callbacks are drained before stream handoff. Cleanup confirmation is preserved after recovered worker panic when network cleanup succeeded. Protocol regression tests cover expiry/missing fields and cancellation race; tunnel tests cover partial receive, partial send and cancellation, plus existing Swift/Go/UTUN/service/UI checks. Real EHR gateway behavior still requires installation testing. Universal macOS 13+, ad-hoc signed, AGPL source included.' dist-native/*.zip dist-native/*-source.tar.gz dist-native/build-info.json dist-native/SHA256SUMS.txt
+          gh release create v0.5.0-beta.10 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title 'Connect v0.5.0-beta.10 · Swift native Universal' --notes 'Separates server shutdown (command 0x08), temporary reconnect rejection, and unauthenticated resource responses instead of reporting all as authentication failure. Temporary reconnect rejection now receives bounded backoff retries and retains its cause on exhaustion; terminal shutdown is never retried with the same session. Includes wrapped-error classification, delayed-reconnect, shutdown and retry-exhaustion regressions alongside existing protocol/Swift/Go/UTUN/service/UI checks. Specific EHR gateway behavior remains unverified without runtime gateway diagnostics. Universal macOS 13+, ad-hoc signed, AGPL source included.' dist-native/*.zip dist-native/*-source.tar.gz dist-native/build-info.json dist-native/SHA256SUMS.txt
