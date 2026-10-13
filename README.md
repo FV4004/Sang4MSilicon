@@ -1,4 +1,4 @@
-# M Chip VPN Login · 0.1.0-beta.2
+# M Chip VPN Login · 0.1.0-beta.3
 
 面向 Apple Silicon 的 macOS HTTP / HTTPS 认证测试客户端，依据用户提供的 EasyConnect 7.6.7 安装包中实际 SDK 调用实现。提供服务器地址、用户名、密码、网关图片验证码、刷新与认证结果反馈。**认证成功不代表 VPN 已连接：本版本未实现 VPN 数据隧道。**
 
@@ -34,18 +34,18 @@ npm run package:mac
 上传此目录的源代码到用户指定仓库后：
 
 - 手动运行 `macOS arm64 beta`：测试、打包、arm64 验证、临时签名，生成 Actions artifact。
-- 首次推送 `main`：同一流程通过后自动创建 `v0.1.0-beta.2` GitHub prerelease，附件含 macOS arm64 ZIP、SHA256SUMS.txt 与构建元数据。
+- 首次推送 `main`：同一流程通过后自动创建 `v0.1.0-beta.3` GitHub prerelease，附件含 macOS arm64 ZIP、SHA256SUMS.txt 与构建元数据。
 - 后续发行需更新项目版本及工作流中的发行版本，避免覆盖已发布标签。
 
 工作流无需 Apple 签名 secrets。发布 job 仅使用该仓库 Actions 自动提供的 GitHub token。
 
 ## 协议实现与测试
 
-`app/auth.cjs` 使用以下调用流程：`/por/login_auth.csp` → `/public/psw_config` → `/por/rand_code.csp`（按需）→ `/por/login_psw.csp?anti_replay=1&encrypt=1` → 必要后续认证 → `/por/update_session.csp`。服务端 XML 和 Cookie 保存在主进程；UI 不接触 TwfID 或会话 Cookie。
+`app/auth.cjs` 使用以下调用流程：`/por/login_auth.csp` → `/public/psw_config` → `/por/rand_code.csp`（按需）→ `/por/login_auth.csp`（密码提交前刷新当前 RSA 参数与防重放随机码，保持验证码 Cookie 会话）→ `/por/login_psw.csp?anti_replay=1&encrypt=1` → 必要后续认证 → `/por/update_session.csp`。服务端 XML 和 Cookie 保存在主进程；UI 不接触 TwfID 或会话 Cookie。
 
 密码字段兼容 `RSA PKCS#1 v1.5(password + "_" + CSRF_RAND_CODE)`，十六进制密文。缺少公钥或随机码时停止请求，不发送明文密码回退。请求默认追加 `apiversion=1`，表单使用 application/x-www-form-urlencoded。
 
-14 项本地模拟网关测试已通过：地址校验、RSA 解密对应性、防重放字段、XML 异常、Cookie 与会话同步、验证码刷新/错误、无验证码网关、后续认证、未知认证、跨地址重定向拦截、超时、HTTPS 登录及不受信任证书拒绝。未获得真实网关地址与授权测试记录，尚未完成真实网关、M5 Pro UI 和端到端 VPN 连接验证。
+17 项本地模拟网关测试已通过：地址校验、RSA 解密对应性、防重放字段、XML 异常、Cookie 与会话同步、验证码刷新/错误、无验证码网关、后续认证、未知认证、跨地址重定向拦截、超时、HTTPS 登录、不受信任证书拒绝、提交前 RSA/随机码刷新、20004 错误提示及刷新失败阻止密码提交。未获得真实网关地址与授权测试记录，尚未完成真实网关、M5 Pro UI 和端到端 VPN 连接验证。
 
 ## 与逆向分析结果的关系
 

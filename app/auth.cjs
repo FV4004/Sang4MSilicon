@@ -65,7 +65,7 @@ class AuthClient {
     const cookie = await this.jar.getCookieString(u.href);
     const response = await new Promise((resolve, reject) => {
       const req = (u.protocol === 'https:' ? https : http).request(u, {method, ...(this.tlsCA ? {ca: this.tlsCA} : {}), headers: {
-        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.1.0-beta.2', ...(cookie ? {Cookie: cookie} : {}), ...headers,
+        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.1.0-beta.3', ...(cookie ? {Cookie: cookie} : {}), ...headers,
         ...(payload ? {'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': payload.length} : {})
       }}, res => {
         const chunks = []; let size = 0;
@@ -121,9 +121,22 @@ class AuthClient {
     if (!this.config || this.challenge || this.authenticated) throw new Error('请先获取新的登录配置与验证码。');
     if (typeof username !== 'string' || !username.trim() || username.length > 256 || typeof password !== 'string' || !password || password.length > 4096 || typeof captcha !== 'string' || captcha.length > 128) throw new Error('请输入有效用户名、密码和验证码。');
     if (Number(this.config.USE_RAND_CODE ?? this.config.RndImg ?? 0) === 1 && !captcha.trim()) throw new Error('请输入图片中的验证码。');
+    // The shipped SDK calls getInitConfig immediately before password submission.
+    // Use that same session's current anti-replay challenge and RSA parameters.
+    const fresh = parseAuth((await this.request('/por/login_auth.csp')).body);
+    if (Number(fresh.ErrorCode) !== 1) {
+      this.config = null;
+      throw new Error(`刷新认证配置失败（${fresh.ErrorCode}），请重新获取验证码。`);
+    }
+    if (!fresh.RSA_ENCRYPT_KEY || !fresh.CSRF_RAND_CODE) {
+      this.config = null;
+      throw new Error('当前认证响应缺少 RSA 公钥或防重放随机码，无法安全提交；请核对网关兼容性。');
+    }
+    this.config = {...this.config, ...fresh};
+    this.saveSession(fresh);
     const encrypted = rsaPassword(password, this.config);
     const response = await this.request('/por/login_psw.csp?anti_replay=1&encrypt=1', {method: 'POST', form: {
-      mitm_result: '', svpn_req_randcode: String(this.config.CSRF_RAND_CODE), svpn_name: username.trim(), svpn_password: encrypted, svpn_rand_code: captcha.trim()
+      mitm_result: '', svpn_req_randcode: String(this.config.CSRF_RAND_CODE), svpn_name: username, svpn_password: encrypted, svpn_rand_code: captcha.trim()
     }});
     return this.authResult(parseAuth(response.body));
   }
@@ -136,7 +149,17 @@ class AuthClient {
       const supported = /^(token|radius|sms1|sms2|totp)$/i.test(next);
       return {phase: supported ? 'challenge' : 'unsupported', nextService: next, message: supported ? '请输入服务器要求的动态验证码或应答。' : '服务器要求此测试版尚未支持的认证步骤，请使用官方客户端完成。'};
     }
-    if (code !== 1 || next) { this.config = null; throw new Error(`认证失败（${code}），请重新获取验证码后重试。`); }
+    if (code !== 1 || next) {
+      this.config = null;
+      const messages = {
+        20004: '用户名或密码验证未通过。如果同一账号能在官方客户端登录，可能存在认证参数或会话兼容问题。',
+        20023: '图片验证码验证失败，请重新获取并输入验证码。',
+        20026: '认证会话无效，请重新初始化登录。',
+        20049: '服务器的中间人攻击检查未通过。',
+        20113: '服务端禁止客户端接入，请联系 VPN 管理员确认接入策略。'
+      };
+      throw new Error(`${messages[code] || '服务器拒绝了认证，请重新初始化后重试。'}（${code}）`);
+    }
     if (!this.twfid) throw new Error('认证响应缺少会话，无法确认登录成功。');
     const u = new URL('/por/update_session.csp', this.base); u.searchParams.set('twfid', this.twfid);
     await this.request(u.href, {headers: {TWFID: this.twfid}});

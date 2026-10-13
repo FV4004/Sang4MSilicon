@@ -22,28 +22,30 @@ const {AuthClient, serverURL, parseAuth, rsaPassword} = require('../app/auth.cjs
 const pair = crypto.generateKeyPairSync('rsa', {modulusLength: 2048});
 const jwk = pair.publicKey.export({format: 'jwk'});
 const modulus = Buffer.from(jwk.n, 'base64url').toString('hex');
+const rotatedPair = crypto.generateKeyPairSync('rsa', {modulusLength: 2048});
+const rotatedModulus = Buffer.from(rotatedPair.publicKey.export({format: 'jwk'}).n, 'base64url').toString('hex');
 const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082', 'hex');
 const xml = data => '<Auth>' + Object.entries(data).map(([k,v]) => `<${k}>${v}</${k}>`).join('') + '</Auth>';
-function decrypted(hex) {
- const b = crypto.privateDecrypt({key: pair.privateKey, padding: crypto.constants.RSA_NO_PADDING}, Buffer.from(hex, 'hex'));
+function decrypted(hex, privateKey = pair.privateKey) {
+ const b = crypto.privateDecrypt({key: privateKey, padding: crypto.constants.RSA_NO_PADDING}, Buffer.from(hex, 'hex'));
  assert.equal(b[0], 0); assert.equal(b[1], 2);
  const end = b.indexOf(0, 2); assert.ok(end >= 10); return b.subarray(end + 1).toString('utf8');
 }
 async function mock(t, options = {}) {
- const calls = [];
+ const calls = []; let initRequests = 0;
  const handler = async (req, res) => {
   const u = new URL(req.url, 'http://localhost');
   let body = ''; for await (const b of req) body += b;
   calls.push({path: u.pathname, query: u.searchParams, headers: req.headers, method: req.method, body: new URLSearchParams(body)});
   const write = data => { res.setHeader('Content-Type', 'application/xml'); res.end(xml(data)); };
-  if (u.pathname === '/por/login_auth.csp') { res.setHeader('Set-Cookie', 'testsession=present; Path=/; HttpOnly' + (options.tls ? '; Secure' : '')); return write({ErrorCode: 1, TwfID: 'initial-session'}); }
+  if (u.pathname === '/por/login_auth.csp') { res.setHeader('Set-Cookie', 'testsession=present; Path=/; HttpOnly' + (options.tls ? '; Secure' : '')); initRequests++; return write({ErrorCode: initRequests > 1 && options.failRefresh ? 20026 : 1, TwfID: 'initial-session', ...(initRequests > 1 ? {RSA_ENCRYPT_KEY: options.rotateAuth ? rotatedModulus : modulus, RSA_ENCRYPT_EXP: 65537, CSRF_RAND_CODE: options.rotateAuth ? 'fresh-random' : 'csrf-42'} : {})}); }
   if (u.pathname === '/public/psw_config') return write({ErrorCode: 1, RSA_ENCRYPT_KEY: modulus, RSA_ENCRYPT_EXP: 65537, CSRF_RAND_CODE: 'csrf-42', USE_RAND_CODE: options.noCaptcha ? 0 : 1});
   if (u.pathname === '/por/rand_code.csp') { res.setHeader('Content-Type', 'image/png'); return res.end(png); }
   if (u.pathname === '/por/login_psw.csp') {
    if (options.redirect) { res.writeHead(307, {Location: options.redirect}); return res.end(); }
    if (options.slow) return;
    const form = new URLSearchParams(body);
-   if ((!options.noCaptcha && form.get('svpn_rand_code') !== 'A1B2') || options.reject) return write({ErrorCode: 0});
+   if ((!options.noCaptcha && form.get('svpn_rand_code') !== 'A1B2') || options.reject || options.rejectCode) return write({ErrorCode: options.rejectCode || 0});
    return write({ErrorCode: 1, TwfID: 'authenticated-session', ...(options.mfa ? {NextService: options.mfa} : {})});
   }
   if (u.pathname === '/por/login_token.csp') return write({ErrorCode: 1, TwfID: 'final-session'});
@@ -95,7 +97,7 @@ test('Captcha refresh reuses session and changes random query', async t => {
 test('Missing captcha is rejected before credential request, wrong captcha cannot authenticate', async t => {
  const {origin,calls} = await mock(t); const client = new AuthClient(origin); await client.initialize();
  await assert.rejects(client.login({...creds,captcha:''}),/验证码/); assert.equal(calls.filter(c => c.path.includes('login_psw')).length,0);
- await assert.rejects(client.login({...creds,captcha:'WRONG'}),/认证失败/); assert.equal(client.authenticated,false); assert.equal(client.config,null);
+ await assert.rejects(client.login({...creds,captcha:'WRONG'}),/服务器拒绝了认证/); assert.equal(client.authenticated,false); assert.equal(client.config,null);
 });
 test('Gateways without image captcha remain supported', async t => {
  const {origin,calls} = await mock(t,{noCaptcha:true}); const client = new AuthClient(origin); assert.equal((await client.initialize()).captchaRequired,false);
@@ -133,4 +135,26 @@ test('HTTPS refuses untrusted server certificates without submitting credentials
  const client = new AuthClient(origin);
  await assert.rejects(client.initialize(),/HTTPS 证书验证失败/);
  assert.equal(calls.length,0); assert.equal(client.authenticated,false);
+});
+
+test('Password submission refreshes auth challenge and uses rotated RSA key without reloading captcha', async t => {
+ const {origin,calls} = await mock(t,{rotateAuth:true}); const client = new AuthClient(origin);
+ await client.initialize(); assert.equal((await client.login(creds)).phase,'authenticated');
+ const loginIndex = calls.findIndex(c => c.path === '/por/login_psw.csp');
+ assert.equal(calls[loginIndex-1].path,'/por/login_auth.csp');
+ assert.equal(calls.filter(c => c.path === '/por/login_auth.csp').length,2);
+ assert.equal(calls.filter(c => c.path === '/por/rand_code.csp').length,1);
+ assert.equal(calls[loginIndex].body.get('svpn_req_randcode'),'fresh-random');
+ assert.equal(decrypted(calls[loginIndex].body.get('svpn_password'),rotatedPair.privateKey),creds.password+'_fresh-random');
+ assert.equal(calls[loginIndex].headers.cookie,'testsession=present');
+});
+test('20004 is reported as password authentication, not captcha or official-client attestation', async t => {
+ const {origin} = await mock(t,{rejectCode:20004}); const client = new AuthClient(origin); await client.initialize();
+ await assert.rejects(client.login(creds),/用户名或密码验证未通过.*20004/);
+ assert.equal(client.authenticated,false);
+});
+test('Failed auth refresh prevents password submission', async t => {
+ const {origin,calls} = await mock(t,{failRefresh:true}); const client = new AuthClient(origin); await client.initialize();
+ await assert.rejects(client.login(creds),/刷新认证配置失败/);
+ assert.equal(calls.filter(c => c.path === '/por/login_psw.csp').length,0);
 });
