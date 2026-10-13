@@ -101,7 +101,7 @@ func serviceInstallScript(helper: String, helperHash: String, broker: String, br
     try await controller.recoverNetwork()
     guard controller.state == "disconnected" else { throw VPNError("Recovery did not release controller state") }
     do {
-        try await controller.start(host: "127.0.0.1", port: 1, sessionID: "ci-smoke", mode: "tun", socksPort: 0, httpPort: 0)
+        try await controller.start(host: "127.0.0.1", port: 1, sessionID: "0123456789abcdef", mode: "tun", socksPort: 0, httpPort: 0)
         throw VPNError("Loopback failure unexpectedly connected")
     } catch {
         guard controller.state == "disconnected", controller.detail != VPNController.message("CLEANUP_FAILED") else { throw VPNError("Failed connection did not release control state: " + controller.state + " / " + controller.detail + " / " + error.localizedDescription) }

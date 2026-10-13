@@ -99,6 +99,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
     private var forceServiceInstall = false
     private func publish(_ state: String, _ detail: String) { self.state = state; self.detail = detail; onChange?() }
     func start(host: String, port: Int, sessionID: String, mode: String, socksPort: Int, httpPort: Int) async throws {
+        guard sessionID.utf8.count == 16 else { throw VPNError("登录会话格式无效，请退出登录后重新认证。") }
         guard ["tun", "proxy"].contains(mode) else { throw VPNError("VPN 连接模式无效。") }
         try await startSession(host: host, port: port, sessionID: sessionID, mode: mode, socksPort: socksPort, httpPort: httpPort)
     }
@@ -250,11 +251,11 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         if let handle = socket { _ = Darwin.shutdown(handle.fileDescriptor, SHUT_RDWR); try? handle.close() }
         if writer !== socket { try? writer?.close() }
         socket = nil; writer = nil; process = nil; reader?.cancel(); reader = nil
-        if activeID == id { activeID = UUID(); publish("disconnected", cleanupFailed ? Self.message("CLEANUP_FAILED") : (failureMessage ?? "未连接")) }
+        if activeID == id { activeID = UUID(); publish("disconnected", cleanupFailed ? ((failureMessage ?? Self.message("CLEANUP_FAILED")) + " 未收到网络清理确认，请恢复网络配置。") : (failureMessage ?? "未连接")) }
         if cleanupFailed { throw VPNError(Self.message("CLEANUP_FAILED")) }
     }
     static func message(_ code: String) -> String {
-        let messages = ["WORKER_START_FAILED": "后台服务无法启动 VPN 工作进程，请点击修复后台服务。", "WORKER_PANIC": "VPN 数据处理异常，已停止隧道并恢复网络配置。", "STATE_DIRECTORY_UNSAFE": "VPN 恢复目录权限异常，需要检查目录所有者及权限。", "CONTROL_DIRECTORY_UNSAFE": "VPN 控制目录权限异常，请检查是否有旧版客户端残留。", "TUN_LOCK_FAILED": "无法获取 VPN 工作锁，请检查旧版客户端是否仍在运行。", "TUN_FAILD": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUN_FAILED": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUNNEL_FAILED": "VPN 数据隧道中断，请重试连接；如仍失败，请恢复网络配置。", "TUN_UNSUPPORTED": "网关仅支持 TCP 应用隧道，无法使用本版 TUN。", "TUN_BUSY": "已有 VPN 隧道在运行，请先断开旧客户端。", "CONFIG_FAILED": "无法获取 VPN 资源配置。", "RESOURCE_FETCH_FAILED": "网关未返回资源列表。", "DNS_ROUTING_UNAVAILABLE": "网关未提供可用内网路由或 DNS。", "DNS_DOMAIN_LIMIT": "网关分流域名数量超过限制。", "AUTH_FAILED": "隧道认证失败，请重新登录。", "TLS_CERT_INVALID": "网关证书验证失败。", "CLEANUP_FAILED": "未能确认网络配置恢复，请检查系统路由和 DNS 后再连接。", "ROUTE_FAILED": "内网路由配置失败。", "DNS_CONFLICT": "内网 DNS 配置冲突。", "PERMISSION_DENIED": "管理员授权未完成。", "TUN_UNAVAILABLE": "无法启动系统 TUN。", "CONNECT_FAILED": "无法连接 VPN 隧道，请检查端口。"]
+        let messages = ["UNSUPPORTED_SESSION": "登录会话格式无效，请退出登录后重新认证。", "WORKER_START_FAILED": "后台服务无法启动 VPN 工作进程，请点击修复后台服务。", "WORKER_PANIC": "VPN 数据处理异常，已停止隧道并恢复网络配置。", "STATE_DIRECTORY_UNSAFE": "VPN 恢复目录权限异常，需要检查目录所有者及权限。", "CONTROL_DIRECTORY_UNSAFE": "VPN 控制目录权限异常，请检查是否有旧版客户端残留。", "TUN_LOCK_FAILED": "无法获取 VPN 工作锁，请检查旧版客户端是否仍在运行。", "TUN_FAILD": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUN_FAILED": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUNNEL_FAILED": "VPN 数据隧道中断，请重试连接；如仍失败，请恢复网络配置。", "TUN_UNSUPPORTED": "网关仅支持 TCP 应用隧道，无法使用本版 TUN。", "TUN_BUSY": "已有 VPN 隧道在运行，请先断开旧客户端。", "CONFIG_FAILED": "无法获取 VPN 资源配置。", "RESOURCE_FETCH_FAILED": "网关未返回资源列表。", "DNS_ROUTING_UNAVAILABLE": "网关未提供可用内网路由或 DNS。", "DNS_DOMAIN_LIMIT": "网关分流域名数量超过限制。", "AUTH_FAILED": "隧道认证失败，请重新登录。", "TLS_CERT_INVALID": "网关证书验证失败。", "CLEANUP_FAILED": "未能确认网络配置恢复，请检查系统路由和 DNS 后再连接。", "ROUTE_FAILED": "内网路由配置失败。", "DNS_CONFLICT": "内网 DNS 配置冲突。", "PERMISSION_DENIED": "管理员授权未完成。", "TUN_UNAVAILABLE": "无法启动系统 TUN。", "CONNECT_FAILED": "无法连接 VPN 隧道，请检查端口。"]
         return messages[code] ?? "VPN 连接失败（\(code)）。"
     }
 }

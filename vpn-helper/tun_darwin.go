@@ -566,6 +566,7 @@ func tunStdio() error {
 	var c config
 	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &c) != nil {
 		fail("UNSUPPORTED_SESSION")
+		emit(map[string]string{"event": "stopped"}) // Rejected before any network configuration was touched.
 		return errors.New("invalid config")
 	}
 	if c.Mode == "recover" {
@@ -581,6 +582,7 @@ func tunStdio() error {
 	}
 	if validate(c) != nil || c.Mode != "tun" {
 		fail("UNSUPPORTED_SESSION")
+		emit(map[string]string{"event": "stopped"}) // Rejected before any network configuration was touched.
 		return errors.New("invalid config")
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
