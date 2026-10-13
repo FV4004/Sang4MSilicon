@@ -1,0 +1,66 @@
+name: macOS arm64 beta
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-and-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefix app
+      - run: npm test
+      - run: npm run package:mac
+      - name: Verify architecture and sign locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path='dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app'
+          test "$(lipo -archs "$app_path/Contents/MacOS/M Chip VPN Login")" = arm64
+          codesign --force --deep --sign - --entitlements scripts/entitlements.plist "$app_path"
+          codesign --verify --deep --strict "$app_path"
+          node -e 'const fs = require("node:fs"); const p="dist/build-info.json"; const m=JSON.parse(fs.readFileSync(p)); m.adHocSigned=true; m.developerIdSigned=false; m.commit=process.env.GITHUB_SHA; fs.writeFileSync(p,JSON.stringify(m,null,2));'
+      - name: Create distribution archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip'
+          cd dist
+          shasum -a 256 MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MChipVPNLogin-mac-arm64-beta
+          path: |
+            dist/MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip
+            dist/SHA256SUMS.txt
+            dist/build-info.json
+  publish:
+    if: github.event_name == 'push'
+    needs: test-and-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MChipVPNLogin-mac-arm64-beta
+          path: dist
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          release_tag="v0.1.0-beta.1"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then release_tag="$GITHUB_REF_NAME"; fi
+          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Apple Silicon HTTP authentication beta. Includes server-provided captcha and RSA-compatible login. Authentication only; no VPN data tunnel. No Developer ID signing or Apple notarization. Tested against a local mock gateway; real gateways require compatibility testing.' dist/*.zip dist/SHA256SUMS.txt dist/build-info.json

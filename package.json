@@ -1,0 +1,14 @@
+{
+  "name": "m-chip-vpn-login",
+  "version": "0.1.0-beta.1",
+  "description": "EasyConnect-compatible HTTP authentication tester for Apple Silicon",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "start": "npx --yes --package=electron@44.7.0 electron app",
+    "package:mac": "node scripts/package-mac.cjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0"
+  }
+}

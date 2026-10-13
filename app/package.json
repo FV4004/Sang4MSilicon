@@ -1,0 +1,10 @@
+{
+  "name": "m-chip-vpn-login",
+  "productName": "M Chip VPN Login",
+  "version": "0.1.0-beta.1",
+  "main": "main.cjs",
+  "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "tough-cookie": "6.0.0"
+  }
+}
