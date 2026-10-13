@@ -187,10 +187,25 @@ func prepareDNSPolicy(domains clientpkg.DomainResources, static map[string][]net
 		p.Warnings = append(p.Warnings, "DOMAIN_RULE_SKIPPED")
 	}
 	for name := range names {
-		p.Names = append(p.Names, name)
+		covered := false
+		suffix := name
+		for {
+			i := strings.IndexByte(suffix, '.')
+			if i < 0 {
+				break
+			}
+			suffix = suffix[i+1:]
+			if names[suffix] {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			p.Names = append(p.Names, name)
+		}
 	}
 	sort.Strings(p.Names)
-	if len(p.Names) > 128 {
+	if len(p.Names) > 16384 {
 		return p, errors.New("DNS domain limit exceeded")
 	}
 	return p, nil
@@ -252,7 +267,7 @@ func cleanupLease(dir, path string) error {
 	if e != nil {
 		return e
 	}
-	if len(b) > 1<<20 {
+	if len(b) > 8<<20 {
 		return errors.New("invalid recovery journal")
 	}
 	var l resolverLease
@@ -289,12 +304,18 @@ func cleanupLease(dir, path string) error {
 	return os.Remove(path)
 }
 func installResolvers(dir, journal string, domains []string, port int, tag string) error {
+	return installResolversContext(context.Background(), dir, journal, domains, port, tag)
+}
+func installResolversContext(ctx context.Context, dir, journal string, domains []string, port int, tag string) error {
 	l := resolverLease{Files: map[string]string{}}
 	if port < 1024 || port > 65535 {
 		return errors.New("invalid resolver port")
 	}
 	content := fmt.Sprintf("# mchip-vpn %s\nnameserver 127.0.0.1\nport %d\n", tag, port)
 	for _, d := range domains {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		name, e := domainName(d)
 		if e != nil || name != d {
 			return errors.New("invalid DNS domain")
@@ -305,8 +326,14 @@ func installResolvers(dir, journal string, domains []string, port int, tag strin
 	}
 	for _, d := range domains {
 		l.Files[d] = content
-		if e := saveLease(journal, l); e != nil {
-			return e
+	}
+	// Persist the complete ownership plan once, before creating any resolver.
+	if e := saveLease(journal, l); e != nil {
+		return e
+	}
+	for _, d := range domains {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		f, e := os.OpenFile(filepath.Join(dir, d), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 		if e != nil {
@@ -353,6 +380,10 @@ func newSplitDNS(domains []string, static map[string][]net.IP, servers []string,
 			records[n] = v
 		}
 	}
+	allowedDomains := map[string]bool{}
+	for _, d := range domains {
+		allowedDomains[d] = true
+	}
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
 		reply := new(dns.Msg)
 		reply.SetReply(q)
@@ -364,11 +395,17 @@ func newSplitDNS(domains []string, static map[string][]net.IP, servers []string,
 		question := q.Question[0]
 		name := strings.ToLower(strings.TrimSuffix(question.Name, "."))
 		allowed := false
-		for _, d := range domains {
-			if name == d || strings.HasSuffix(name, "."+d) {
+		suffix := name
+		for {
+			if allowedDomains[suffix] {
 				allowed = true
 				break
 			}
+			i := strings.IndexByte(suffix, '.')
+			if i < 0 {
+				break
+			}
+			suffix = suffix[i+1:]
 		}
 		if !allowed {
 			_ = w.WriteMsg(reply)

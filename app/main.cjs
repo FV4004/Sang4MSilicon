@@ -1,8 +1,11 @@
 'use strict';
-const {app, BrowserWindow, ipcMain, shell, dialog} = require('electron');
+const {app, BrowserWindow, ipcMain, shell, dialog, safeStorage} = require('electron');
 const path = require('node:path');
 const {pathToFileURL} = require('node:url');
 const {Preferences} = require('./preferences.cjs');
+const {Credentials}=require('./credentials.cjs');
+let credentials;
+const accounts=()=>credentials||(credentials=new Credentials(app.getPath('userData'),safeStorage));
 const {AuthClient} = require('./auth.cjs');
 const {spawnTun, recoverTun, recoveryPending} = require('./tun-launcher.cjs');
 const {VpnSupervisor} = require('./vpn.cjs');
@@ -30,7 +33,13 @@ else {
       switch (action) {
         case 'initialize': { const server = await new Preferences(app.getPath('userData')).saveServer(data?.server); await vpn.stop(); client?.close(); client = new AuthClient(server); value = await client.initialize(); break; }
         case 'captcha': if (!client) throw new Error('请先连接服务器。'); value = {captchaImage: await client.captcha()}; break;
-        case 'login': if (!client) throw new Error('请先连接服务器。'); value = await client.login(data || {}); break;
+        case 'login': {
+          if (!client) throw new Error('请先连接服务器。');
+          let memoryWarning='';
+          try {await accounts().save(client.base.origin,{username:data?.username,rememberPassword:data?.rememberPassword===true,password:data?.rememberPassword===true?data?.password:undefined})}
+          catch {try{await accounts().save(client.base.origin,{username:data?.username,rememberPassword:false})}catch{};memoryWarning='账号记忆设置未能保存，本次认证继续进行。'}
+          value=await client.login(data||{});if(memoryWarning)value.memoryWarning=memoryWarning;break;
+        }
         case 'challenge': if (!client) throw new Error('请先连接服务器。'); value = await client.submitChallenge(data?.value); break;
         case 'logout': await vpn.stop(); value = client ? await client.logout() : {phase: 'idle'}; client = null; break;
         default: throw new Error('操作无效。');
@@ -38,6 +47,13 @@ else {
       return {ok: true, value};
     } catch (error) { return {ok: false, error: error.message || '请求失败。'}; }
     finally { busy = false; }
+  });
+  ipcMain.handle('preferences:account', async (event,{action,server,data}={})=>{
+    if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== pathToFileURL(entry).href) throw new Error('请求来源无效。');
+    try{if(action==='read')return {ok:true,value:await accounts().read(server)};
+     if(action==='save'){await accounts().save(server,{username:data?.username,rememberPassword:data?.rememberPassword===true});return {ok:true}}
+     throw Error('操作无效。');
+    }catch{return {ok:false,error:'账号记忆设置未能保存，请重试。'}}
   });
   ipcMain.handle('preferences:server', async event => {
     if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== pathToFileURL(entry).href) throw new Error('请求来源无效。');
@@ -67,7 +83,7 @@ else {
   app.on('before-quit', event => {
     if (quitting) return;
     event.preventDefault(); client?.close(); client = null;
-    vpn.stop().catch(() => { dialog.showErrorBox('VPN 网络配置恢复待确认', '未能确认路由和内网 DNS 已恢复。请检查系统网络配置后再连接 VPN。'); }).finally(() => { quitting = true; app.quit(); });
+    vpn.stop().catch(() => { dialog.showErrorBox('VPN 网络配置恢复待确认', '未能确认路由和内网 DNS 已恢复。请检查系统网络配置后再连接 VPN。'); }).finally(async () => { await credentials?.queue; quitting = true; app.quit(); });
   });
   app.on('window-all-closed', () => { app.quit(); });
 }

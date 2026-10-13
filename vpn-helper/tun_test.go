@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"github.com/miekg/dns"
 	clientpkg "github.com/mythologyli/zju-connect/client"
@@ -166,5 +167,48 @@ func TestGatewayDNSAndPlaceholdersDoNotAbortResourcePolicy(t *testing.T) {
 	p, e = prepareDNSPolicy(clientpkg.DomainResources{"service.internal": nil}, nil, []string{"192.0.2.1"}, []net.IP{net.ParseIP("192.0.2.1")})
 	if e != nil || len(p.Servers) != 0 || len(p.Names) != 0 || len(p.Warnings) != 1 {
 		t.Fatal("gateway DNS must produce explicit limited-DNS warning", p, e)
+	}
+}
+
+func TestThousandsOfDNSDomainsAndCoveredSuffixes(t *testing.T) {
+	domains := clientpkg.DomainResources{}
+	for i := 0; i < 16384; i++ {
+		domains["service"+strconv.Itoa(i)+".internal.example"] = nil
+	}
+	p, e := prepareDNSPolicy(domains, nil, []string{"10.4.0.53"}, nil)
+	if e != nil || len(p.Names) != 16384 {
+		t.Fatal("large DNS policy rejected", len(p.Names), e)
+	}
+	domains["internal.example"] = nil
+	p, e = prepareDNSPolicy(domains, nil, []string{"10.4.0.53"}, nil)
+	if e != nil || len(p.Names) != 1 || p.Names[0] != "internal.example" {
+		t.Fatal("redundant DNS resolver files not collapsed", e)
+	}
+}
+func TestLargeResolverPlanRecoversAndCancellationLeavesNoFiles(t *testing.T) {
+	dir := t.TempDir()
+	journal := filepath.Join(dir, "lease.json")
+	var names []string
+	for i := 0; i < 512; i++ {
+		names = append(names, "app"+strconv.Itoa(i)+".internal.example")
+	}
+	if e := installResolvers(dir, journal, names, 2053, "large-test"); e != nil {
+		t.Fatal(e)
+	}
+	if e := cleanupLease(dir, journal); e != nil {
+		t.Fatal(e)
+	}
+	files, _ := os.ReadDir(dir)
+	if len(files) != 0 {
+		t.Fatal("resolver files persisted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if e := installResolversContext(ctx, dir, journal, names, 2053, "cancelled-test"); e == nil {
+		t.Fatal("cancel ignored")
+	}
+	files, _ = os.ReadDir(dir)
+	if len(files) != 0 {
+		t.Fatal("cancelled plan modified files")
 	}
 }

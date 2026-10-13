@@ -1,9 +1,11 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let accountOrigin='',accountRequest=0,canRememberPassword=true,autoFilledPassword=false;
 let recoveryPending = false;
 let phase = 'idle', busy = false, preparedServer = '', required = false, vpnState = {state: 'disconnected'};
 function message(text, kind = '') { $('feedback').textContent = text; $('feedback').className = 'feedback ' + kind; }
 function controls() {
+  $('remember-password').disabled=busy||phase==='authenticated'||!canRememberPassword;
   $('recover-network').hidden = !recoveryPending && vpnState.code !== 'CLEANUP_FAILED';
   $('recover-network').disabled = busy;
   $('login-form').hidden = phase === 'authenticated';
@@ -48,6 +50,7 @@ async function operation(fn) {
 }
 function unpack(r) { if (!r.ok) throw new Error(r.error); return r.value; }
 async function prepare() {
+  await loadAccount($('server').value);
   $('captcha-image').removeAttribute('src'); $('captcha-area').hidden = true; $('captcha').value = '';
   phase = 'idle'; $('password').required = true; $('captcha').required = false; message('正在读取服务器登录配置…');
   const r = unpack(await window.vpnAuth.initialize($('server').value));
@@ -62,7 +65,7 @@ $('prepare').addEventListener('click', () => operation(prepare));
 $('refresh').addEventListener('click', () => operation(async () => {
   const r = unpack(await window.vpnAuth.captcha()); $('captcha-image').src = r.captchaImage; $('captcha').value = ''; message('验证码已刷新。');
 }));
-$('server').addEventListener('input', () => { phase = 'idle'; $('captcha-area').hidden = true; $('captcha-image').removeAttribute('src'); controls(); });
+$('server').addEventListener('input', () => { accountRequest++;accountOrigin='';autoFilledPassword=false;$('username').value='';$('password').value='';$('remember-password').checked=false; phase = 'idle'; $('captcha-area').hidden = true; $('captcha-image').removeAttribute('src'); controls(); });
 $('login-form').addEventListener('submit', e => {
   e.preventDefault(); operation(async () => {
     let r;
@@ -70,14 +73,15 @@ $('login-form').addEventListener('submit', e => {
     else {
       if ($('server').value.trim() !== preparedServer) throw new Error('服务器地址已变更，请重新获取验证码。');
       const password = $('password').value;
-      try { r = unpack(await window.vpnAuth.login({username: $('username').value, password, captcha: $('captcha').value})); }
+      const rememberPassword=$('remember-password').checked===true;
+      try { r = unpack(await window.vpnAuth.login({username: $('username').value, password, rememberPassword, captcha: $('captcha').value})); }
       catch (err) { phase = 'idle'; $('captcha-area').hidden = true; throw err; }
 
     }
     phase = r.phase; $('challenge').value = '';
     if (phase === 'authenticated') $('password').value = '';
     if (phase === 'challenge') { $('captcha-area').hidden = true; $('captcha').required = false; $('password').required = false; $('challenge-name').textContent = r.nextService; }
-    message(phase === 'authenticated' ? '认证成功，可以连接 VPN。' : r.message, phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
+    message((phase === 'authenticated' ? '认证成功，可以连接 VPN。' : r.message)+(r.memoryWarning?' '+r.memoryWarning:''), phase === 'authenticated' ? 'success' : phase === 'unsupported' ? 'error' : '');
   });
 });
 $('logout').addEventListener('click', () => operation(async () => {
@@ -126,7 +130,7 @@ window.vpnAuth.readSavedServer().then(result => {
   if (!result.ok || !$('server')) return;
   recoveryPending = !!result.value.recoveryRequired;
   const value = result.value.server;
-  if(recoveryPending){if(!$('server').value)$('server').value=value||'';message('上次连接未完整退出，请先恢复网络配置。','error');controls();return;}
+  if(recoveryPending){if(!$('server').value)$('server').value=value||'';void loadAccount($('server').value);message('上次连接未完整退出，请先恢复网络配置。','error');controls();return;}
   if ($('server').value || busy || phase !== 'idle') return;
   if (canAutoPrepare(value)) { $('server').value = value; void operation(prepare); }
 }).catch(() => {});
@@ -135,3 +139,25 @@ $('recover-network').addEventListener('click',()=>operation(async()=>{
  unpack(await window.vpnAuth.recoverNetwork());recoveryPending=false;vpnState={state:'disconnected'};
  if(canAutoPrepare($('server').value.trim()))await prepare();else message('网络配置已恢复，可以重新登录。');
 }));
+
+async function loadAccount(server){
+ if(!canAutoPrepare(server)||!window.vpnAuth.readSavedAccount)return;
+ const origin=new URL(server).origin;if(accountOrigin===origin)return;
+ const request=++accountRequest,username=$('username').value;
+ let r;try{r=await window.vpnAuth.readSavedAccount(server)}catch{return}
+ if(!r.ok||request!==accountRequest||!canAutoPrepare($('server').value)||new URL($('server').value).origin!==origin||phase==='authenticated')return;
+ accountOrigin=origin;const saved=r.value;canRememberPassword=saved.canRememberPassword!==false;
+ if($('username').value===username&&!username)$('username').value=saved.username||'';
+ const sameUser=$('username').value===(saved.username||'');
+ $('remember-password').checked=sameUser&&saved.rememberPassword===true&&canRememberPassword;
+ if(sameUser&&!$('password').value&&saved.password){$('password').value=saved.password;autoFilledPassword=true}
+ $('memory-hint').textContent=canRememberPassword?'默认记忆用户 ID；密码可选加密保存。':'系统安全存储不可用，本次不记忆密码。';controls();
+}
+async function saveAccountSettings(){
+ if(!canAutoPrepare($('server').value)||!window.vpnAuth.saveAccount)return;
+ try{const r=await window.vpnAuth.saveAccount($('server').value,{username:$('username').value,rememberPassword:$('remember-password').checked===true});if(!r.ok)$('memory-hint').textContent=r.error}catch{$('memory-hint').textContent='账号记忆设置未能保存。'}
+}
+$('username').addEventListener('input',()=>{if(autoFilledPassword){$('password').value='';autoFilledPassword=false;$('remember-password').checked=false}});
+$('username').addEventListener('blur',()=>void saveAccountSettings());
+$('password').addEventListener('input',()=>{autoFilledPassword=false});
+$('remember-password').addEventListener('change',()=>void saveAccountSettings());

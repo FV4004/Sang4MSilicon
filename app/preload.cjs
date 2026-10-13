@@ -1,6 +1,8 @@
 'use strict';
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('vpnAuth', Object.freeze({
+  readSavedAccount: server => ipcRenderer.invoke('preferences:account',{action:'read',server}),
+  saveAccount: (server,data) => ipcRenderer.invoke('preferences:account',{action:'save',server,data}),
   recoverNetwork: () => ipcRenderer.invoke('vpn:call', {action: 'recover'}),
   readSavedServer: () => ipcRenderer.invoke('preferences:server'),
   initialize: server => ipcRenderer.invoke('auth:call', {action: 'initialize', data: {server}}),

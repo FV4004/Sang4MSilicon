@@ -461,7 +461,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			fail("DNS_CONFLICT")
 			return nil
 		}
-		if e = installResolvers(resolverDir, journal, names, dnsServer.port, tag); e != nil {
+		if e = installResolversContext(ctx, resolverDir, journal, names, dnsServer.port, tag); e != nil {
 			fail("DNS_CONFLICT")
 			return nil
 		}

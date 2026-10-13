@@ -48,6 +48,7 @@ test('main remembers a validated address before failed gateway initialization an
   vm.runInNewContext(source, {__dirname: appDirectory, require(name) {
     if (name === 'electron') return electron;
     if (name === './preferences.cjs') return {Preferences};
+    if (name === './credentials.cjs') return require('../app/credentials.cjs');
     if (name === './auth.cjs') return {AuthClient: FakeAuth};
     if (name === './vpn.cjs') return {VpnSupervisor: FakeVpn};
     if (name === './tun-launcher.cjs') return {spawnTun() { throw new Error('TUN must not launch during login'); }};
@@ -59,6 +60,10 @@ test('main remembers a validated address before failed gateway initialization an
   assert.equal(await new Preferences(dir).readServer(), '');
   const result = await invoke(event, {action: 'initialize', data: {server: 'https://vpn.example.com:8443'}});
   assert.equal(result.ok, false); assert.equal(result.error, 'Gateway offline'); assert.equal(await new Preferences(dir).readServer(), 'https://vpn.example.com:8443');
+  const accountHandler=handlers.get('preferences:account');
+  await assert.rejects(accountHandler({sender:{},senderFrame:{}},{action:'read',server:'https://vpn.example.com'}),/来源无效/);
+  assert.equal((await accountHandler(event,{action:'save',server:'https://vpn.example.com',data:{username:'remembered-id',rememberPassword:false}})).ok,true);
+  assert.equal((await accountHandler(event,{action:'read',server:'https://vpn.example.com'})).value.username,'remembered-id');
   const invalid = await invoke(event, {action: 'initialize', data: {server: 'http://username:password@vpn.example.com'}});
   assert.equal(invalid.ok, false); assert.equal(await new Preferences(dir).readServer(), 'https://vpn.example.com:8443');
 });

@@ -62,18 +62,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.3.0-beta.2-mac-arm64.zip'
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist/MChipVPNLogin-0.3.0-beta.2-source.zip
+          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.3.0-beta.3-mac-arm64.zip'
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist/MChipVPNLogin-0.3.0-beta.3-source.zip
           cp .build/upstream.tar.gz dist/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist/compress-1.18.6-source.tar.gz
           cd dist
-          shasum -a 256 MChipVPNLogin-0.3.0-beta.2-mac-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 MChipVPNLogin-0.3.0-beta.3-mac-arm64.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: MChipVPNLogin-mac-arm64-beta
           path: |
-            dist/MChipVPNLogin-0.3.0-beta.2-mac-arm64.zip
-            dist/MChipVPNLogin-0.3.0-beta.2-source.zip
+            dist/MChipVPNLogin-0.3.0-beta.3-mac-arm64.zip
+            dist/MChipVPNLogin-0.3.0-beta.3-source.zip
             dist/*-source.tar.gz
             dist/SHA256SUMS.txt
             dist/build-info.json
@@ -93,6 +93,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          release_tag="v0.3.0-beta.2"
+          release_tag="v0.3.0-beta.3"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then release_tag="$GITHUB_REF_NAME"; fi
-          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Open-source educational macOS arm64 TUN beta. Fixes overly strict DNS prerequisites: preserves parsed IPv4 routes and static domains when policy DNS is unavailable, skips unsupported domain rules with visible warnings, normalizes static hostnames and distinguishes resource errors. Retains gateway route exclusion and avoids public DNS fallback. Node, Go race and native UTUN smoke tests passed; actual gateway access requires user testing. No Apple Developer ID or notarization. AGPL source archives included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json
+          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Open-source educational macOS arm64 TUN beta. Supports up to 16,384 effective DNS domains, collapses covered subdomains and writes recovery plans in one batch. Remembers user ID by default; password persistence is opt-in, encrypted through macOS Keychain-backed safeStorage, bound to server and account, and deleted on opt-out. Includes large DNS policy, recovery, credential isolation, Node/Go and native UTUN tests. No Apple Developer ID or notarization; actual gateway access requires user testing. AGPL source included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json

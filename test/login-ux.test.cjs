@@ -8,11 +8,11 @@ const script = fs.readFileSync(path.join(__dirname, '../app/renderer.js'), 'utf8
 const pageHTML = fs.readFileSync(path.join(__dirname, '../app/index.html'), 'utf8');
 const validIDs = new Set(Array.from(pageHTML.matchAll(/id="([^"]+)"/g), match => match[1]));
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function page({saved = '', recoveryRequired = false, login = {ok: false, error: '认证失败（20004）'}, initialize} = {}) {
+function page({saved = '', account={username:'',password:'',rememberPassword:false,canRememberPassword:true}, recoveryRequired = false, login = {ok: false, error: '认证失败（20004）'}, initialize} = {}) {
   const elements = new Map();
   function get(id) { assert.ok(validIDs.has(id), 'Missing actual HTML element: ' + id); if (!elements.has(id)) elements.set(id, {value: id === 'vpn-mode' ? 'tun' : '', hidden: false, disabled: false, textContent: '', className: '', required: false, classList: {toggle() {}}, listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, removeAttribute(name) { delete this[name]; }}); return elements.get(id); }
   const calls = {initialize: [], login: []};
-  const api = {readSavedServer: async () => ({ok: true, value: {server: saved, recoveryRequired}}), initialize: async value => { calls.initialize.push(value); return initialize || {ok: true, value: {server: value, captchaRequired: true, captchaImage: 'data:image/png;base64,real'}}; }, login: async value => { calls.login.push(value); return login; }, onVpnStatus() {}, vpnStatus: async () => ({ok: true, value: {state: 'disconnected'}}), recoverNetwork: async () => ({ok:true,value:{recovered:true}}), logout: async () => ({ok: true}), captcha: async () => ({ok: true, value: {captchaImage: 'data:image/png;base64,refresh'}})};
+  const api = {readSavedAccount:async()=>({ok:true,value:account}),saveAccount:async()=>({ok:true}),readSavedServer: async () => ({ok: true, value: {server: saved, recoveryRequired}}), initialize: async value => { calls.initialize.push(value); return initialize || {ok: true, value: {server: value, captchaRequired: true, captchaImage: 'data:image/png;base64,real'}}; }, login: async value => { calls.login.push(value); return login; }, onVpnStatus() {}, vpnStatus: async () => ({ok: true, value: {state: 'disconnected'}}), recoverNetwork: async () => ({ok:true,value:{recovered:true}}), logout: async () => ({ok: true}), captcha: async () => ({ok: true, value: {captchaImage: 'data:image/png;base64,refresh'}})};
   vm.runInNewContext(script, {document: {getElementById: get, querySelector: () => ({classList: {toggle() {}}})}, window: {vpnAuth: api}, URL});
   return {get, calls, api};
 }
@@ -50,4 +50,11 @@ test('pending crash recovery blocks automatic gateway access until privileged re
  assert.equal(x.calls.initialize.length,0);assert.equal(x.get('recover-network').hidden,false);assert.equal(x.get('prepare').disabled,true);
  await x.get('recover-network').listeners.click();await tick();
  assert.equal(x.calls.initialize.length,1);assert.equal(x.get('recover-network').hidden,true);
+});
+
+test('saved user ID and opted-in password restore for the server; login forwards opt-in', async()=>{
+ const x=page({saved:'https://vpn.example.com',account:{username:'account',password:'remembered-secret',rememberPassword:true,canRememberPassword:true}});await tick();await tick();
+ assert.equal(x.get('username').value,'account');assert.equal(x.get('password').value,'remembered-secret');assert.equal(x.get('remember-password').checked,true);
+ x.get('login-form').listeners.submit({preventDefault(){}});await tick();assert.equal(x.calls.login[0].rememberPassword,true);
+ x.get('username').value='different-user';x.get('username').listeners.input();assert.equal(x.get('password').value,'');assert.equal(x.get('remember-password').checked,false);
 });

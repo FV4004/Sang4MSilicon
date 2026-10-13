@@ -36,7 +36,7 @@ exec ${quote(ROOT_HELPER)} --tun-control ${quote(socket)} --owner-uid ${quote(ui
 function spawnTun(helperPath, _args, _options, deps = {}) {
   const platform = deps.platform || process.platform, uid = deps.uid ?? process.getuid?.();
   const io = deps.fs || fs, launch = deps.spawn || spawn, execute = deps.execFile || run, connect = deps.connect || net.createConnection;
-  const pollMs = deps.pollMs ?? 100, timeoutMs = deps.timeoutMs ?? 180000, cleanupMs = deps.cleanupMs ?? 15000;
+  const pollMs = deps.pollMs ?? 100, timeoutMs = deps.timeoutMs ?? 180000, cleanupMs = deps.cleanupMs ?? 45000;
   const child = new EventEmitter(); child.pid = process.pid; child.stdout = new PassThrough(); child.stderr = new PassThrough();
   let auth, socket, config = '', configSent = false, stopping = false, closed = false, acknowledged = false, forced = false, pollTimer, deadline, cleanupTimer;
   const socketPath = `${SOCKET_DIR}/${uid}-${(deps.randomBytes || randomBytes)(16).toString('hex')}.sock`;

@@ -9,3 +9,5 @@ html,body{width:100%;height:100%;overflow:hidden}body{padding:0;display:block}.s
 @media(max-width:950px){.shell{grid-template-columns:250px 1fr}.panel{padding-left:30px;padding-right:30px}aside{padding-left:24px;padding-right:24px}}
 
 #recover-network{margin-top:8px;padding-top:0;color:#a44737}
+
+.remember-row{display:flex;gap:12px;align-items:center;margin-top:9px}.remember-row label{display:flex;align-items:center;gap:6px;font-size:11px;margin:0;white-space:nowrap}.remember-row input{width:14px;height:14px;padding:0;accent-color:#28594c}.remember-row span{font-size:10px;color:#859397}.panel label{margin-top:11px}.remember-row label{margin-top:0}
