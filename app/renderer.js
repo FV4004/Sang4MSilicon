@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 let phase = 'idle', busy = false, preparedServer = '', required = false;
 function message(text, kind = '') { $('feedback').textContent = text; $('feedback').className = 'feedback ' + kind; }
 function controls() {
+  $('transport-notice').hidden = !/^http:\/\//i.test($('server').value.trim());
   $('prepare').disabled = busy || phase === 'authenticated';
   $('server').disabled = busy || ['challenge', 'unsupported', 'authenticated'].includes(phase);
   for (const id of ['username', 'password', 'captcha']) $(id).disabled = busy || phase === 'authenticated' || phase === 'challenge';

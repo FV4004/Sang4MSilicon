@@ -35,14 +35,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip'
+          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.1.0-beta.2-mac-arm64.zip'
           cd dist
-          shasum -a 256 MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 MChipVPNLogin-0.1.0-beta.2-mac-arm64.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: MChipVPNLogin-mac-arm64-beta
           path: |
-            dist/MChipVPNLogin-0.1.0-beta.1-mac-arm64.zip
+            dist/MChipVPNLogin-0.1.0-beta.2-mac-arm64.zip
             dist/SHA256SUMS.txt
             dist/build-info.json
   publish:
@@ -61,6 +61,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          release_tag="v0.1.0-beta.1"
+          release_tag="v0.1.0-beta.2"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then release_tag="$GITHUB_REF_NAME"; fi
-          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Apple Silicon HTTP authentication beta. Includes server-provided captcha and RSA-compatible login. Authentication only; no VPN data tunnel. No Developer ID signing or Apple notarization. Tested against a local mock gateway; real gateways require compatibility testing.' dist/*.zip dist/SHA256SUMS.txt dist/build-info.json
+          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Apple Silicon HTTP/HTTPS authentication beta. Includes server-provided captcha and RSA-compatible login. Authentication only; no VPN data tunnel. No Developer ID signing or Apple notarization. Tested against a local mock gateway; real gateways require compatibility testing.' dist/*.zip dist/SHA256SUMS.txt dist/build-info.json

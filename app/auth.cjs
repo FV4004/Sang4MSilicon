@@ -7,11 +7,11 @@ const {CookieJar} = require('tough-cookie');
 const parser = new XMLParser({ignoreAttributes: true, parseTagValue: false, processEntities: false, trimValues: true});
 
 function serverURL(value) {
-  if (typeof value !== 'string' || value.length > 2048) throw new Error('请输入 HTTP 服务器地址。');
+  if (typeof value !== 'string' || value.length > 2048) throw new Error('请输入 HTTP 或 HTTPS 服务器地址。');
   let u;
-  try { u = new URL(value.trim()); } catch { throw new Error('地址格式无效，例如 http://vpn.example.com:8080。'); }
-  if (u.protocol !== 'http:' || !u.hostname || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) {
-    throw new Error('请输入完整 HTTP 服务器地址和可选端口，不包含用户名、密码或页面路径。');
+  try { u = new URL(value.trim()); } catch { throw new Error('地址格式无效，例如 https://vpn.example.com 或 http://vpn.example.com:8080。'); }
+  if (!['http:', 'https:'].includes(u.protocol) || !u.hostname || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) {
+    throw new Error('请输入完整 HTTP 或 HTTPS 服务器地址和可选端口，不包含用户名、密码或页面路径。');
   }
   return u;
 }
@@ -45,8 +45,8 @@ function captchaType(b) {
   throw new Error('服务器未返回支持的验证码图片。');
 }
 class AuthClient {
-  constructor(origin, {timeout = 15000} = {}) {
-    this.base = serverURL(origin); this.jar = new CookieJar(); this.timeout = timeout;
+  constructor(origin, {timeout = 15000, tlsCA} = {}) {
+    this.tlsCA = tlsCA; this.base = serverURL(origin); this.jar = new CookieJar(); this.timeout = timeout;
     this.config = null; this.twfid = ''; this.challenge = ''; this.authenticated = false;
     this.closed = false; this.activeRequests = new Set();
   }
@@ -59,13 +59,13 @@ class AuthClient {
   async request(pathname, {method = 'GET', form, headers = {}} = {}, redirectCount = 0) {
     if (this.closed) throw new Error('会话已关闭，请重新获取验证码。');
     const u = new URL(pathname, this.base);
-    if (u.origin !== this.base.origin) throw new Error('服务器要求跳转到其他地址，请使用最终 HTTP 登录地址重新连接。');
+    if (u.origin !== this.base.origin) throw new Error('服务器要求跳转到其他地址，请使用最终登录地址重新连接。');
     if (!u.searchParams.has('apiversion')) u.searchParams.set('apiversion', '1');
     const payload = form ? Buffer.from(new URLSearchParams(form).toString()) : null;
     const cookie = await this.jar.getCookieString(u.href);
     const response = await new Promise((resolve, reject) => {
-      const req = (u.protocol === 'https:' ? https : http).request(u, {method, headers: {
-        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.1.0', ...(cookie ? {Cookie: cookie} : {}), ...headers,
+      const req = (u.protocol === 'https:' ? https : http).request(u, {method, ...(this.tlsCA ? {ca: this.tlsCA} : {}), headers: {
+        Accept: '*/*', 'User-Agent': 'MChipVPNLogin/0.1.0-beta.2', ...(cookie ? {Cookie: cookie} : {}), ...headers,
         ...(payload ? {'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': payload.length} : {})
       }}, res => {
         const chunks = []; let size = 0;
@@ -76,7 +76,7 @@ class AuthClient {
       this.activeRequests.add(req);
       const timer = setTimeout(() => req.destroy(new Error('连接超时，请检查服务器和网络。')), this.timeout);
       req.once('close', () => { clearTimeout(timer); this.activeRequests.delete(req); });
-      req.on('error', err => reject(err.message === '连接超时，请检查服务器和网络。' || err.message === '服务器响应过大。' || err.message === '操作已取消。' ? err : new Error('无法连接服务器，请检查地址、端口和网络。')));
+      req.on('error', err => reject(['DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY'].includes(err.code) ? new Error('HTTPS 证书验证失败，请检查服务器证书、有效期和地址是否匹配。') : err.message === '连接超时，请检查服务器和网络。' || err.message === '服务器响应过大。' || err.message === '操作已取消。' ? err : new Error('无法连接服务器，请检查地址、端口和网络。')));
       if (payload) req.write(payload);
       req.end();
     });

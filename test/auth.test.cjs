@@ -1,4 +1,20 @@
-const {test} = require('node:test');
+const {test, after} = require('node:test');
+const https = require('node:https');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {execFileSync} = require('node:child_process');
+let tlsFixture;
+function localTLS() {
+ if (tlsFixture) return tlsFixture;
+ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mchip-tls-test-'));
+ after(() => fs.rmSync(dir, {recursive: true, force: true}));
+ const cfg = path.join(dir, 'openssl.cnf');
+ fs.writeFileSync(cfg, '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=localhost\n[ext]\nsubjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:TRUE\n');
+ execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', path.join(dir,'key.pem'), '-out', path.join(dir,'cert.pem'), '-config', cfg], {stdio: 'ignore'});
+ tlsFixture = {key: fs.readFileSync(path.join(dir,'key.pem')), cert: fs.readFileSync(path.join(dir,'cert.pem'))};
+ return tlsFixture;
+}
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const crypto = require('node:crypto');
@@ -15,12 +31,12 @@ function decrypted(hex) {
 }
 async function mock(t, options = {}) {
  const calls = [];
- const server = http.createServer(async (req, res) => {
+ const handler = async (req, res) => {
   const u = new URL(req.url, 'http://localhost');
   let body = ''; for await (const b of req) body += b;
   calls.push({path: u.pathname, query: u.searchParams, headers: req.headers, method: req.method, body: new URLSearchParams(body)});
   const write = data => { res.setHeader('Content-Type', 'application/xml'); res.end(xml(data)); };
-  if (u.pathname === '/por/login_auth.csp') { res.setHeader('Set-Cookie', 'testsession=present; Path=/; HttpOnly'); return write({ErrorCode: 1, TwfID: 'initial-session'}); }
+  if (u.pathname === '/por/login_auth.csp') { res.setHeader('Set-Cookie', 'testsession=present; Path=/; HttpOnly' + (options.tls ? '; Secure' : '')); return write({ErrorCode: 1, TwfID: 'initial-session'}); }
   if (u.pathname === '/public/psw_config') return write({ErrorCode: 1, RSA_ENCRYPT_KEY: modulus, RSA_ENCRYPT_EXP: 65537, CSRF_RAND_CODE: 'csrf-42', USE_RAND_CODE: options.noCaptcha ? 0 : 1});
   if (u.pathname === '/por/rand_code.csp') { res.setHeader('Content-Type', 'image/png'); return res.end(png); }
   if (u.pathname === '/por/login_psw.csp') {
@@ -34,16 +50,22 @@ async function mock(t, options = {}) {
   if (u.pathname === '/por/update_session.csp') return write({ErrorCode: 1});
   if (u.pathname === '/por/logout.csp') return write({ErrorCode: 1});
   res.writeHead(404); res.end();
- });
+ };
+ const server = options.tls ? https.createServer(localTLS(), handler) : http.createServer(handler);
  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
  t.after(() => { server.closeAllConnections(); server.close(); });
- return {origin: `http://127.0.0.1:${server.address().port}`, calls};
+ return {origin: `${options.tls ? 'https' : 'http'}://127.0.0.1:${server.address().port}`, calls};
 }
 const creds = {username: 'user&测试', password: 'p+a&ss中文', captcha: 'A1B2'};
-test('HTTP server validation accepts ports and rejects embedded credentials and paths', () => {
+test('HTTP/HTTPS server validation supports default/custom ports and rejects invalid origins', () => {
  assert.equal(serverURL('http://127.0.0.1:8080').origin, 'http://127.0.0.1:8080');
  assert.equal(serverURL('http://[::1]:8080').hostname, '[::1]');
- for (const value of ['https://example.com','file:///tmp/a','http://a:b@example.com','http://example.com/por/login','http://example.com?token=x']) assert.throws(() => serverURL(value));
+ assert.equal(serverURL('https://example.com').origin, 'https://example.com');
+ assert.equal(serverURL('http://example.com').port, '');
+ assert.equal(serverURL('https://example.com:443').port, '');
+ assert.equal(serverURL('http://example.com:80').port, '');
+ assert.equal(serverURL('https://example.com:8443').port, '8443');
+ for (const value of ['file:///tmp/a','http://a:b@example.com','http://example.com/por/login','http://example.com?token=x']) assert.throws(() => serverURL(value));
 });
 test('RSA ciphertext decrypts to exact SDK password_randomcode and stays modulus-sized', () => {
  const encrypted = rsaPassword(creds.password, {RSA_ENCRYPT_KEY: modulus, RSA_ENCRYPT_EXP: '65537', CSRF_RAND_CODE: 'csrf-42'});
@@ -95,4 +117,20 @@ test('Cross-origin redirects never forward credential body', async t => {
 test('Hung gateway requests time out', async t => {
  const {origin} = await mock(t,{slow:true}); const client = new AuthClient(origin,{timeout:100}); await client.initialize();
  await assert.rejects(client.login(creds),/超时/);
+});
+
+test('HTTPS login verifies trusted TLS and preserves secure cookies through captcha and login', async t => {
+ const {origin,calls} = await mock(t,{tls:true});
+ const client = new AuthClient(origin,{tlsCA:localTLS().cert});
+ assert.equal((await client.initialize()).captchaRequired,true);
+ await client.captcha();
+ assert.equal((await client.login(creds)).phase,'authenticated');
+ for(const call of calls.filter(c => c.path !== '/por/login_auth.csp')) assert.equal(call.headers.cookie,'testsession=present');
+ await client.logout();
+});
+test('HTTPS refuses untrusted server certificates without submitting credentials', async t => {
+ const {origin,calls} = await mock(t,{tls:true});
+ const client = new AuthClient(origin);
+ await assert.rejects(client.initialize(),/HTTPS 证书验证失败/);
+ assert.equal(calls.length,0); assert.equal(client.authenticated,false);
 });

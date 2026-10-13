@@ -1,7 +1,7 @@
 {
   "name": "m-chip-vpn-login",
-  "version": "0.1.0-beta.1",
-  "description": "EasyConnect-compatible HTTP authentication tester for Apple Silicon",
+  "version": "0.1.0-beta.2",
+  "description": "EasyConnect-compatible HTTP/HTTPS authentication tester for Apple Silicon",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.cjs",
