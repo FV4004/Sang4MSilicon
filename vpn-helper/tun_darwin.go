@@ -357,7 +357,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		fail("CONNECT_FAILED")
 		return nil
 	}
-	vpn := easyconnect.NewClient(easyconnect.Options{Server: c.Server, SessionID: c.SessionID, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true}, UnderlayDialer: underlay})
+	vpn := easyconnect.NewClient(easyconnect.Options{DisableSessionUpdate: sessionRefreshMode == "disabled", SessionDiagnostic: diag.note, Server: c.Server, SessionID: c.SessionID, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true}, UnderlayDialer: underlay})
 	defer vpn.Close()
 	defer diag.closing()
 	done := make(chan struct{})

@@ -54,3 +54,5 @@ func labFailure(code string) string {
 	return "LAB_" + labProfile + "_" + code + "_FIRST_" + labFirst
 }
 func normalizeLabPacket(p []byte) {}
+
+var sessionRefreshMode = "disabled"

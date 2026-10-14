@@ -65,3 +65,6 @@ import runpy
 runpy.run_path(str(ROOT / 'vpn-patches/patch.py'))['apply'](dest, ROOT / 'vpn-patches')
 
 shutil.copyfile(ROOT / "vpn-patches/mchip_control_diagnostic.go", dest / "client/easyconnect/mchip_control_diagnostic.go")
+
+runpy.run_path(str(ROOT / "vpn-patches/session_refresh_patch.py"))["apply"](dest)
+shutil.copyfile(ROOT / "vpn-patches/mchip_session_refresh_test.go", dest / "client/easyconnect/mchip_session_refresh_test.go")
