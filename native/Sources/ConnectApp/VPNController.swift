@@ -260,6 +260,14 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         if cleanupFailed { throw VPNError(Self.message("CLEANUP_FAILED")) }
     }
     static func message(_ code: String) -> String {
+        // Experimental helpers append fixed first-I/O labels. Keep the original
+        // human-readable action while exposing the full label for comparison.
+        if code.count <= 256,
+           code.range(of: "^LAB_[ABC]_[A-Z0-9_]+_FIRST_[A-Z0-9_]*$", options: .regularExpression) != nil,
+           let separator = code.range(of: "_FIRST_") {
+            let raw = String(code[code.index(code.startIndex, offsetBy: 6)..<separator.lowerBound])
+            return message(raw) + " 实验诊断：" + code
+        }
         let messages = ["TUN_SERVER_SHUTDOWN": "网关主动终止了数据会话（指令 0x08）。请重新登录；若仅访问特定资源触发，需要检查网关访问策略或协议兼容性。", "TUN_RECONNECT_LATER": "网关要求暂缓重连，有限重试后仍未接受连接。请稍后重试，无需立即重新登录。", "TUN_SESSION_EXPIRED": "网关未返回已认证的资源配置，当前登录会话可能已失效，请重新登录。", "TUN_FRAME_INVALID": "网关数据流不是有效 IPv4 数据帧，请反馈此提示以检查协议兼容性。", "TUN_REMOTE_CLOSED": "网关关闭了数据连接，请重新认证后连接。", "UNSUPPORTED_SESSION": "登录会话格式无效，请退出登录后重新认证。", "WORKER_START_FAILED": "后台服务无法启动 VPN 工作进程，请点击修复后台服务。", "WORKER_PANIC": "VPN 数据处理异常。请恢复网络配置后重试。", "STATE_DIRECTORY_UNSAFE": "VPN 恢复目录权限异常，需要检查目录所有者及权限。", "CONTROL_DIRECTORY_UNSAFE": "VPN 控制目录权限异常，请检查是否有旧版客户端残留。", "TUN_LOCK_FAILED": "无法获取 VPN 工作锁，请检查旧版客户端是否仍在运行。", "TUN_FAILD": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUN_FAILED": "VPN 数据隧道失败，请恢复网络配置后重试。", "TUNNEL_FAILED": "VPN 数据隧道中断，请重试连接；如仍失败，请恢复网络配置。", "TUN_UNSUPPORTED": "网关仅支持 TCP 应用隧道，无法使用本版 TUN。", "TUN_BUSY": "已有 VPN 隧道在运行，请先断开旧客户端。", "CONFIG_FAILED": "无法获取 VPN 资源配置。", "RESOURCE_FETCH_FAILED": "网关未返回资源列表。", "DNS_ROUTING_UNAVAILABLE": "网关未提供可用内网路由或 DNS。", "DNS_DOMAIN_LIMIT": "网关分流域名数量超过限制。", "AUTH_FAILED": "隧道认证失败，请重新登录。", "TLS_CERT_INVALID": "网关证书验证失败。", "CLEANUP_FAILED": "未能确认网络配置恢复，请检查系统路由和 DNS 后再连接。", "ROUTE_FAILED": "内网路由配置失败。", "DNS_CONFLICT": "内网 DNS 配置冲突。", "PERMISSION_DENIED": "管理员授权未完成。", "TUN_UNAVAILABLE": "无法启动系统 TUN。", "CONNECT_FAILED": "无法连接 VPN 隧道，请检查端口。"]
         return messages[code] ?? "VPN 连接失败（\(code)）。"
     }
