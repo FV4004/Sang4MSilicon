@@ -70,7 +70,7 @@ func TestDiagnosticCountsAndBoundedConcurrentTimeline(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); d.sendBegin(nil); d.sent(); d.received(); d.note("RECONNECT_send") }()
+		go func() { defer wg.Done(); d.sendBegin(nil); d.sent(); d.received(nil); d.note("RECONNECT_send") }()
 	}
 	wg.Wait()
 	text := d.summary()

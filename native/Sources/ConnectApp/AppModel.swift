@@ -28,6 +28,7 @@ struct VPNConnectionRequest {
     @Published var httpPort = "1081"
     @Published var vpnState = "disconnected"
     @Published var vpnDetail = "未连接"
+    @Published var vpnDiagnostic = ""
     @Published var groups: [ResourceGroup] = []
     @Published var tab = 0
     @Published var selectedGroup = ""
@@ -58,7 +59,7 @@ struct VPNConnectionRequest {
         // older persisted opt-in. Stored entries are read only after explicit opt-in.
         rememberPassword = false
         preferences.removeObject(forKey: "rememberPassword")
-        vpn.onChange = { [weak self] in guard let self else { return }; self.vpnState = self.vpn.state; self.vpnDetail = self.vpn.detail; self.onStateChange?() }
+        vpn.onChange = { [weak self] in guard let self else { return }; self.vpnState = self.vpn.state; self.vpnDetail = self.vpn.detail; self.vpnDiagnostic = self.vpn.diagnostic; self.onStateChange?() }
     }
     private func run(_ work: @escaping () async throws -> Void) {
         guard !busy, !shuttingDown else { return }; busy = true; onStateChange?()

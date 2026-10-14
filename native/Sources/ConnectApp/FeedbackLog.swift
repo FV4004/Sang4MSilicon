@@ -15,6 +15,10 @@ enum FeedbackLog {
         }
         return parts.joined(separator: "\n\n")
     }
+    static func withDiagnostic(_ text: String, diagnostic: String) -> String {
+        guard !diagnostic.isEmpty, !text.contains(diagnostic) else { return text }
+        return text + "\n通道诊断：" + diagnostic
+    }
     @MainActor static func copy(_ text: String, to pasteboard: NSPasteboard = .general) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         pasteboard.clearContents()

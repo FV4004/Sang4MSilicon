@@ -136,7 +136,7 @@ func (t *packetTunnel) ReadPacket(buf []byte) ([]byte, error) {
 		}
 		packet, err := readIPv4(conn, buf)
 		if err == nil {
-			diag.received()
+			diag.received(packet)
 			return packet, nil
 		}
 		labError("RECV_DATA", err)

@@ -86,6 +86,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
 @MainActor final class VPNController {
     private(set) var state = "disconnected"
     private(set) var mode = "tun"
+    private(set) var diagnostic = ""
     private(set) var detail = "未连接"
     var onChange: (() -> Void)?
     private var socket: FileHandle?
@@ -122,7 +123,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         let data = try Data(contentsOf: helper); let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let expected = try String(contentsOf: resources.appendingPathComponent("bin/mchip-vpn-helper.sha256"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         guard hash == expected else { throw VPNError("VPN 组件校验失败。") }
-        self.mode = mode; stopped = false; cleanupFailed = false; failureMessage = nil; lastStage = "初始化"; let id = UUID(); activeID = id
+        self.mode = mode; diagnostic = ""; stopped = false; cleanupFailed = false; failureMessage = nil; lastStage = "初始化"; let id = UUID(); activeID = id
         publish("connecting", mode != "proxy" ? "等待管理员授权…" : "正在连接…")
         let host = host.hasPrefix("[") ? String(host.dropFirst().dropLast()) : host
         var config: [String: Any] = ["server": "\(host.contains(":") ? "[\(host)]" : host):\(port)", "sessionId": sessionID, "mode": mode]
@@ -203,6 +204,9 @@ func brokerHandshake(_ handle: FileHandle) async throws {
     }
     private func receive(_ data: Data, id: UUID) {
         guard activeID == id, let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = event["event"] as? String else { return }
+        if name == "diagnostic", state == "connected", failureMessage == nil, let text = event["diagnostic"] as? String, !Self.diagnosticSuffix(text).isEmpty {
+            diagnostic = text; onChange?(); return
+        }
         if name == "retry" && state == "connected" { if let direction = event["direction"] as? String { recoveringChannels.insert(direction) }; publish("connected", "数据连接中断，正在重新建立隧道…"); return }
         if name == "resumed" && state == "connected" { if let direction = event["direction"] as? String { recoveringChannels.remove(direction) }; if recoveringChannels.isEmpty { publish("connected", connectionDetail) }; return }
         if name == "workerExit" {
@@ -214,7 +218,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
             return
         }
         if name == "stopped" { stopped = true; if mode == "recover" && state != "stopping" { publish("disconnected", failureMessage ?? "网络配置已恢复，可以重新连接 VPN。") }; return }
-        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; failureMessage = Self.message(code) + Self.diagnosticSuffix(event["diagnostic"] as? String); cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", failureMessage ?? Self.message(code)); return }
+        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; if let text = event["diagnostic"] as? String, !Self.diagnosticSuffix(text).isEmpty { diagnostic = text }; failureMessage = Self.message(code) + Self.diagnosticSuffix(event["diagnostic"] as? String); cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", failureMessage ?? Self.message(code)); return }
         if state == "stopping" { return }
         if name == "stage" {
             let labels = ["token": "网关认证", "ip": "获取虚拟 IP", "tunnel": "建立数据隧道", "routes": "配置路由和 DNS"]
@@ -261,7 +265,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         if cleanupFailed { throw VPNError(Self.message("CLEANUP_FAILED")) }
     }
     static func diagnosticSuffix(_ text: String?) -> String {
-        guard let text, text.hasPrefix("D12 "), text.count <= 2048,
+        guard let text, text.hasPrefix("D12 "), text.count <= 4096,
               text.range(of: "^[A-Za-z0-9_ =,@.]+$", options: .regularExpression) != nil else { return "" }
         return "\n通道诊断：" + text
     }

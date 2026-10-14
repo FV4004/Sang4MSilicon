@@ -14,7 +14,7 @@ struct RootView: View {
                 }
                 if model.tab == 0 { connection; Spacer(minLength: 0) } else { resources }
                 if model.authenticated {
-                    CopyableFeedback(text: statusFeedback, copyText: FeedbackLog.report(message: model.message, loginMessage: model.loginMessage, loginSucceeded: model.loginTone == .success, vpnDetail: model.vpnDetail), color: .secondary, font: .caption, lines: 2, showCopy: true, identifier: "statusMessage")
+                    CopyableFeedback(text: statusFeedback, copyText: FeedbackLog.withDiagnostic(FeedbackLog.report(message: model.message, loginMessage: model.loginMessage, loginSucceeded: model.loginTone == .success, vpnDetail: model.vpnDetail), diagnostic: model.vpnDiagnostic), color: .secondary, font: .caption, lines: 2, showCopy: true, identifier: "statusMessage")
                 }
                 HStack(spacing: 20) { Button("关闭方式", action: closeSettings); Button("退出程序", action: quit); Spacer(); if model.vpnState == "disconnected" { Button("恢复网络配置", action: model.recoverNetwork).disabled(model.busy); Button("修复后台服务", action: model.repairService).disabled(model.busy) } }.buttonStyle(.link).font(.caption)
                 Text("仅供开源学习与研究。默认记忆服务器与用户 ID；密码可选保存到钥匙串，会话不保存。").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
@@ -88,7 +88,7 @@ struct RootView: View {
                     if model.vpnState == "disconnected" { Button("连接 VPN", action: model.connect).buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy) }
                     else { Button("断开连接", action: model.disconnect).buttonStyle(.borderedProminent).tint(Color(nsColor: .systemRed)).controlSize(.large).disabled(model.vpnState == "stopping") }
                 }.padding(.top, 4)
-                CopyableFeedback(text: model.vpnDetail, color: model.vpnState == "connected" ? Color(nsColor: .systemGreen) : .secondary, font: .callout, lines: 3, showCopy: true, identifier: "vpnFeedback")
+                CopyableFeedback(text: model.vpnDetail, copyText: FeedbackLog.withDiagnostic(model.vpnDetail, diagnostic: model.vpnDiagnostic), color: model.vpnState == "connected" ? Color(nsColor: .systemGreen) : .secondary, font: .callout, lines: 3, showCopy: true, identifier: "vpnFeedback")
                 Text("TUN 模式无需单独配置应用代理；断开后恢复本次添加的路由与内网 DNS。").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }

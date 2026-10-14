@@ -396,6 +396,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if control := vpn.DiagnosticControlStream(); control != nil {
 		go diag.observe(ctx, control, "CONTROL")
 	}
+	diag.setVIP(ip.To4())
 	stage("ip")
 	set, _ := vpn.IPSet()
 	ranges, _ := vpn.IPResources()
@@ -545,6 +546,9 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if ctx.Err() != nil {
 		return nil
 	}
+	snapshotCtx, snapshotCancel := context.WithCancel(ctx)
+	defer snapshotCancel()
+	go diag.publishSnapshots(snapshotCtx)
 	diag.note("READY")
 	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names), "warnings": policy.Warnings})
 	select {

@@ -24,3 +24,13 @@ final class FeedbackLogTests: XCTestCase {
         XCTAssertEqual(FeedbackLog.report(message: vpn, loginMessage: "认证成功", loginSucceeded: true, vpnDetail: vpn), vpn)
     }
 }
+
+extension FeedbackLogTests {
+    func testHealthySnapshotIsIncludedWithoutDuplicatingFailureSnapshot() {
+        let snapshot = "D12 tx_try=10 tx_ok=10 rx_ok=8 packets=TX_F1_TCP_FLAGS_02_SRC_VIP"
+        let report = FeedbackLog.withDiagnostic("VPN 已连接", diagnostic: snapshot)
+        XCTAssertTrue(report.contains(snapshot))
+        XCTAssertEqual(FeedbackLog.withDiagnostic(report, diagnostic: snapshot), report)
+        XCTAssertEqual(FeedbackLog.withDiagnostic("VPN 已连接", diagnostic: ""), "VPN 已连接")
+    }
+}
