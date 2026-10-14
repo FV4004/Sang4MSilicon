@@ -63,3 +63,5 @@ print(f'Prepared zju-connect {REV}; TLS verification and session bounds patches 
 # Reproducible protocol/lifecycle fixes, included in the published source archive.
 import runpy
 runpy.run_path(str(ROOT / 'vpn-patches/patch.py'))['apply'](dest, ROOT / 'vpn-patches')
+
+shutil.copyfile(ROOT / "vpn-patches/mchip_control_diagnostic.go", dest / "client/easyconnect/mchip_control_diagnostic.go")

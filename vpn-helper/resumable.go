@@ -37,6 +37,7 @@ func retryableStreamError(err error) bool {
 	return errors.As(err, &n)
 }
 func (t *packetTunnel) Close() {
+	diag.closing()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.closed {
@@ -67,6 +68,7 @@ func (t *packetTunnel) replace(direction string) error {
 			return net.ErrClosed
 		}
 		t.mu.Unlock()
+		diag.note("RECONNECT_" + direction)
 		if t.retry != nil {
 			t.retry(direction)
 		}
@@ -74,6 +76,7 @@ func (t *packetTunnel) replace(direction string) error {
 			conn, err := t.openRecv()
 			if err != nil {
 				lastErr = err
+				labError(direction+"_HANDSHAKE", err)
 				if !retryableStreamError(err) {
 					return err
 				}
@@ -95,6 +98,7 @@ func (t *packetTunnel) replace(direction string) error {
 		conn, err := t.openSend()
 		if err != nil {
 			lastErr = err
+			labError(direction+"_HANDSHAKE", err)
 			if !retryableStreamError(err) {
 				return err
 			}
@@ -132,8 +136,10 @@ func (t *packetTunnel) ReadPacket(buf []byte) ([]byte, error) {
 		}
 		packet, err := readIPv4(conn, buf)
 		if err == nil {
+			diag.received()
 			return packet, nil
 		}
+		labError("RECV_DATA", err)
 		if !retryableStreamError(err) || attempt == 3 {
 			return nil, err
 		}
@@ -155,13 +161,16 @@ func (t *packetTunnel) WritePacket(packet []byte) error {
 	if closed {
 		return net.ErrClosed
 	}
+	diag.sendBegin(packet)
 	n, err := conn.Write(packet)
 	if err == nil && n == len(packet) {
+		diag.sent()
 		return nil
 	}
 	if err == nil {
 		err = io.ErrShortWrite
 	}
+	labError("SEND_DATA", err)
 	if !retryableStreamError(err) {
 		return err
 	}

@@ -192,7 +192,7 @@ func openDevice(ip string) (*nativeDevice, error) {
 	f := os.NewFile(uintptr(fd), name)
 	ok = true
 	device := &nativeDevice{file: f, name: name}
-	if _, e = systemCommand("/sbin/ifconfig", name, "inet", ip, ip, "netmask", "255.255.255.255", "mtu", "1400", "up"); e != nil {
+	if _, e = systemCommand("/sbin/ifconfig", name, "inet", ip, ip, "netmask", "255.255.255.255", "mtu", labMTU, "up"); e != nil {
 		f.Close()
 		return nil, e
 	}
@@ -359,6 +359,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}
 	vpn := easyconnect.NewClient(easyconnect.Options{Server: c.Server, SessionID: c.SessionID, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true}, UnderlayDialer: underlay})
 	defer vpn.Close()
+	defer diag.closing()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -370,12 +371,13 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}()
 	stage("token")
 	if e = vpn.Setup(); e != nil {
+		labError("SETUP", e)
 		if errors.Is(e, easyconnect.ErrMChipSessionExpired) {
 			fail("TUN_SESSION_EXPIRED")
 		} else if certError(e) {
 			fail("TLS_CERT_INVALID")
 		} else {
-			fail("CONNECT_FAILED")
+			fail(labFailure("CONNECT_FAILED"))
 		}
 		return nil
 	}
@@ -390,6 +392,9 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if e != nil || ip.To4() == nil {
 		fail("TUNNEL_FAILED")
 		return nil
+	}
+	if control := vpn.DiagnosticControlStream(); control != nil {
+		go diag.observe(ctx, control, "CONTROL")
 	}
 	stage("ip")
 	set, _ := vpn.IPSet()
@@ -431,6 +436,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		return nil
 	}
 	defer send.Close()
+	go diag.observe(ctx, send, "SEND")
 	recv, e := vpn.RecvConn()
 	if e != nil {
 		fail(tunnelErrorCode(e))
@@ -502,6 +508,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		for {
 			n, e := device.Read(buf)
 			if e != nil {
+				labError("UTUN_READ", e)
 				errs <- e
 				return
 			}
@@ -512,6 +519,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			if !validIPv4(packet) {
 				continue // Drop malformed local packets without terminating a healthy tunnel.
 			}
+			normalizeLabPacket(packet)
 			if e := tunnel.WritePacket(packet); e != nil {
 				errs <- e
 				return
@@ -528,6 +536,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 				return
 			}
 			if _, e = device.Write(p); e != nil {
+				labError("UTUN_WRITE", e)
 				errs <- e
 				return
 			}
@@ -536,6 +545,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if ctx.Err() != nil {
 		return nil
 	}
+	diag.note("READY")
 	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names), "warnings": policy.Warnings})
 	select {
 	case <-ctx.Done():
@@ -610,7 +620,7 @@ func tunStdio() error {
 	return e
 }
 
-func tunnelErrorCode(err error) string {
+func tunnelErrorCodeRaw(err error) string {
 	if errors.Is(err, easyconnect.ErrSangforShutdown) {
 		return "TUN_SERVER_SHUTDOWN"
 	}
@@ -631,3 +641,5 @@ func tunnelErrorCode(err error) string {
 	}
 	return "TUNNEL_FAILED"
 }
+
+func tunnelErrorCode(err error) string { return labFailure(tunnelErrorCodeRaw(err)) }

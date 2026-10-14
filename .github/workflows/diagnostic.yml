@@ -1,0 +1,85 @@
+name: Connect beta.12 channel diagnostics
+on:
+  push:
+    branches: ['experiment/beta-12-diagnostics']
+  workflow_dispatch:
+concurrency:
+  group: beta12-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      LAB_PROFILE: A
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+          cache-dependency-path: vpn-helper/go.sum
+      - name: Swift authentication, resources and lifecycle tests
+        run: swift test
+        working-directory: native
+      - run: python3 scripts/prepare-vpn.py
+      - name: Protocol lifecycle and profile regressions
+        run: go test -race ./client/easyconnect
+        working-directory: .build/zju-connect
+      - name: Core and packet race regressions
+        run: go test -race ./...
+        working-directory: vpn-helper
+      - name: Native UTUN smoke
+        run: |
+          go test -c -o ../.build/mchip-helper.test .
+          sudo env MCHIP_TUN_SMOKE=1 ../.build/mchip-helper.test -test.run '^TestNativeUTUNSmoke$' -test.v
+        working-directory: vpn-helper
+      - name: Build Universal application and strictly validate signatures
+        run: python3 scripts/package-native.py
+      - name: Persistent service signed-client reuse smoke
+        timeout-minutes: 2
+        run: python3 -c 'import subprocess; subprocess.run(["dist-native/Connect.app/Contents/MacOS/Connect", "--service-smoke"], check=True, timeout=60)'
+      - name: Native window, scrolling and status bar smoke
+        timeout-minutes: 2
+        run: python3 -c 'import subprocess; subprocess.run(["dist-native/Connect.app/Contents/MacOS/Connect", "--ui-smoke"], check=True, timeout=60)'
+      - name: Archive complete application and corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="0.5.0-beta.12"
+          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o "dist-native/Connect-$version-source.zip"
+          cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
+          cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
+          cp DIAGNOSTICS.md dist-native/DIAGNOSTICS.md
+          ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app "dist-native/Connect-$version-mac-universal.zip"
+          cd dist-native
+          shasum -a 256 *.zip *-source.tar.gz build-info.json DIAGNOSTICS.md > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Connect-beta12-diagnostics
+          path: |
+            dist-native/*.zip
+            dist-native/*-source.tar.gz
+            dist-native/build-info.json
+            dist-native/DIAGNOSTICS.md
+            dist-native/SHA256SUMS.txt
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Connect-beta12-diagnostics
+          path: release-assets
+      - name: Publish channel diagnostic prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.5.0-beta.12 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title 'Connect v0.5.0-beta.12 · 通道诊断 · Universal' --notes-file DIAGNOSTICS.md release-assets/*.zip release-assets/*-source.tar.gz release-assets/build-info.json release-assets/DIAGNOSTICS.md release-assets/SHA256SUMS.txt

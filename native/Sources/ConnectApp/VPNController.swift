@@ -213,7 +213,7 @@ func brokerHandshake(_ handle: FileHandle) async throws {
             return
         }
         if name == "stopped" { stopped = true; if mode == "recover" && state != "stopping" { publish("disconnected", failureMessage ?? "网络配置已恢复，可以重新连接 VPN。") }; return }
-        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; failureMessage = Self.message(code); cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", Self.message(code)); return }
+        if name == "error" { let code = event["code"] as? String ?? "TUNNEL_FAILED"; failureMessage = Self.message(code) + Self.diagnosticSuffix(event["diagnostic"] as? String); cleanupFailed = cleanupFailed || code == "CLEANUP_FAILED"; publish(state == "stopping" ? "stopping" : "error", failureMessage ?? Self.message(code)); return }
         if state == "stopping" { return }
         if name == "stage" {
             let labels = ["token": "网关认证", "ip": "获取虚拟 IP", "tunnel": "建立数据隧道", "routes": "配置路由和 DNS"]
@@ -258,6 +258,11 @@ func brokerHandshake(_ handle: FileHandle) async throws {
         socket = nil; writer = nil; process = nil; reader?.cancel(); reader = nil
         if activeID == id { activeID = UUID(); publish("disconnected", cleanupFailed ? ((failureMessage ?? Self.message("CLEANUP_FAILED")) + " 未收到网络清理确认，请恢复网络配置。") : (failureMessage ?? "未连接")) }
         if cleanupFailed { throw VPNError(Self.message("CLEANUP_FAILED")) }
+    }
+    static func diagnosticSuffix(_ text: String?) -> String {
+        guard let text, text.hasPrefix("D12 "), text.count <= 2048,
+              text.range(of: "^[A-Za-z0-9_ =,@.]+$", options: .regularExpression) != nil else { return "" }
+        return "\n通道诊断：" + text
     }
     static func message(_ code: String) -> String {
         // Experimental helpers append fixed first-I/O labels. Keep the original

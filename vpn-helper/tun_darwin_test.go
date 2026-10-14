@@ -84,7 +84,7 @@ func TestTunnelServerResponsesHaveDistinctActions(t *testing.T) {
 		err  error
 		code string
 	}{{easyconnect.ErrSangforShutdown, "TUN_SERVER_SHUTDOWN"}, {easyconnect.ErrSangforReconnectLater, "TUN_RECONNECT_LATER"}, {easyconnect.ErrMChipSessionExpired, "TUN_SESSION_EXPIRED"}} {
-		if got := tunnelErrorCode(fmt.Errorf("wrapped: %w", test.err)); got != test.code {
+		if got := tunnelErrorCodeRaw(fmt.Errorf("wrapped: %w", test.err)); got != test.code {
 			t.Errorf("%s != %s", got, test.code)
 		}
 	}
