@@ -502,6 +502,10 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 		_, _ = systemCommand("/usr/bin/dscacheutil", "-flushcache")
 	}
+	tcpGuard := newTCPSessionGuard()
+	diag.mu.Lock()
+	diag.guard = tcpGuard
+	diag.mu.Unlock()
 	errs := make(chan error, 2)
 	go func() {
 		defer reportPacketWorkerPanic(errs)
@@ -520,6 +524,18 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			if !validIPv4(packet) {
 				continue // Drop malformed local packets without terminating a healthy tunnel.
 			}
+			if allowed, reset := tcpGuard.filter(packet, true); !allowed {
+				diag.filtered(packet, true)
+				if reset != nil {
+					if _, e := device.Write(reset); e != nil {
+						labError("LOCAL_RST_WRITE", e)
+						errs <- e
+						return
+					}
+					diag.note("TCP_EPOCH_LOCAL_RST")
+				}
+				continue
+			}
 			normalizeLabPacket(packet)
 			if e := tunnel.WritePacket(packet); e != nil {
 				errs <- e
@@ -535,6 +551,10 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			if e != nil {
 				errs <- e
 				return
+			}
+			if allowed, _ := tcpGuard.filter(p, false); !allowed {
+				diag.filtered(p, false)
+				continue
 			}
 			if _, e = device.Write(p); e != nil {
 				labError("UTUN_WRITE", e)

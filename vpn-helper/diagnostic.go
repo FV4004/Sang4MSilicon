@@ -13,14 +13,16 @@ import (
 // Each worker owns one session. Reports contain no payloads, endpoints or
 // credentials. Flow keys exist only in a small transient in-memory map.
 type diagnosticState struct {
-	mu                sync.Mutex
-	start             time.Time
-	events            []string
-	txTry, txOK, rxOK uint64
-	localClose        bool
-	vip               [4]byte
-	flows             map[[13]byte]int
-	packets           []string
+	dropNotedTX, dropNotedRX bool
+	mu                       sync.Mutex
+	start                    time.Time
+	events                   []string
+	txTry, txOK, rxOK        uint64
+	localClose               bool
+	vip                      [4]byte
+	flows                    map[[13]byte]int
+	packets                  []string
+	guard                    *tcpSessionGuard
 }
 
 var diag = &diagnosticState{start: time.Now()}
@@ -85,7 +87,13 @@ func (d *diagnosticState) closing() {
 func (d *diagnosticState) summary() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return fmt.Sprintf("D12 tx_try=%d tx_ok=%d rx_ok=%d age_ms=%d timeline=%s", d.txTry, d.txOK, d.rxOK, time.Since(d.start).Milliseconds(), strings.Join(d.events, ",")) + " packets=" + strings.Join(d.packets, ",")
+	result := fmt.Sprintf("D12 tx_try=%d tx_ok=%d rx_ok=%d age_ms=%d timeline=%s", d.txTry, d.txOK, d.rxOK, time.Since(d.start).Milliseconds(), strings.Join(d.events, ",")) + " packets=" + strings.Join(d.packets, ",")
+	if d.guard != nil {
+		d.guard.mu.Lock()
+		result += fmt.Sprintf(" tcp_drop_tx=%d tcp_drop_rx=%d local_rst=%d", d.guard.droppedTX, d.guard.droppedRX, d.guard.resets)
+		d.guard.mu.Unlock()
+	}
+	return result
 }
 
 // One observer per otherwise unread direction. Never writes a guessed reply,
@@ -214,6 +222,24 @@ func (d *diagnosticState) publishSnapshots(ctx context.Context) {
 			return
 		case <-ticker.C:
 			emit(map[string]string{"event": "diagnostic", "diagnostic": d.summary()})
+		}
+	}
+}
+
+func (d *diagnosticState) filtered(packet []byte, out bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if out {
+		d.packetLocked("DROP_TX", packet)
+		if !d.dropNotedTX {
+			d.noteLocked("TCP_EPOCH_DROP_TX")
+			d.dropNotedTX = true
+		}
+	} else {
+		d.packetLocked("DROP_RX", packet)
+		if !d.dropNotedRX {
+			d.noteLocked("TCP_EPOCH_DROP_RX")
+			d.dropNotedRX = true
 		}
 	}
 }
