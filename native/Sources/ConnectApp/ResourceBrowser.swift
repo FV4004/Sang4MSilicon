@@ -2,11 +2,21 @@ import AppKit
 import WebKit
 
 @MainActor final class ResourceBrowser: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
+    private let externalOpen: (URL) async throws -> Void
+    init(externalOpen: @escaping (URL) async throws -> Void = ExternalBrowserLauncher.open) {
+        self.externalOpen = externalOpen
+        super.init()
+    }
+    func openDirect(target: ResourceTarget, tunConnected: Bool) async throws {
+        guard tunConnected else { throw VPNError("请先连接系统 TUN，再访问内网网页。") }
+        _ = try ExternalBrowserLauncher.arguments(for: target.url)
+        try await externalOpen(target.url)
+    }
     private var windows: [NSWindow] = []
     private var store: WKWebsiteDataStore?
     private var generation = 0
     func open(_ resource: VPNResource, target: ResourceTarget, auth: AuthClient, origin: URL, tunConnected: Bool) async throws {
-        if !resource.gateway { guard tunConnected else { throw VPNError("请先连接系统 TUN，再访问内网网页。") }; guard NSWorkspace.shared.open(target.url) else { throw VPNError("无法打开系统浏览器。") }; return }
+        if !resource.gateway { try await openDirect(target: target, tunConnected: tunConnected); return }
         guard windows.count < 16 else { throw VPNError("请先关闭部分资源窗口。") }
         let current = generation
         if store == nil { store = .nonPersistent() }

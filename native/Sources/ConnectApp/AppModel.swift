@@ -33,11 +33,12 @@ struct VPNConnectionRequest {
     @Published var selectedGroup = ""
     @Published var search = ""
     let vpn: VPNController
-    let browser = ResourceBrowser()
+    let browser: ResourceBrowser
     var onStateChange: (() -> Void)?
     var showWindow: (() -> Void)?
     private var auth: AuthClient?
     private var operation: Task<Void, Never>?
+    private var directOperation: Task<Void, Never>?
     private var preparationWait: Task<Void, Never>?
     private var serverEditing = false
     private let preferences: UserDefaults
@@ -46,7 +47,8 @@ struct VPNConnectionRequest {
     private var shuttingDown = false
     private let shutdownCoordinator = ShutdownCoordinator()
     private var resourceOrigin: URL?
-    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil, vpnConnector: ((VPNConnectionRequest) async throws -> Void)? = nil) {
+    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil, vpnConnector: ((VPNConnectionRequest) async throws -> Void)? = nil, browser: ResourceBrowser? = nil) {
+        self.browser = browser ?? ResourceBrowser()
         self.preferences = preferences; self.authFactory = authFactory ?? { try AuthClient($0) }
         let controller = VPNController(); self.vpn = controller
         self.vpnConnector = vpnConnector ?? { request in try await controller.start(host: request.host, port: request.port, sessionID: request.sessionID, mode: request.mode, socksPort: request.socksPort, httpPort: request.httpPort) }
@@ -148,6 +150,19 @@ struct VPNConnectionRequest {
     func refreshResources() { run { [self] in try await fetchResources() } }
     var filteredResources: [VPNResource] { groups.filter { selectedGroup.isEmpty || $0.id == selectedGroup }.flatMap(\.items).filter { search.isEmpty || ($0.name + " " + $0.hosts.joined(separator: " ") + " " + $0.ports.joined(separator: " ")).localizedCaseInsensitiveContains(search) } }
     func open(_ resource: VPNResource, target: ResourceTarget) {
+        if !resource.gateway {
+            guard !busy, !shuttingDown, directOperation == nil else { return }
+            guard authenticated else { message = "请先登录。"; return }
+            // Ordinary browser launch owns no authentication operation or VPN control handle.
+            directOperation = Task { [weak self] in
+                guard let self else { return }
+                defer { self.directOperation = nil }
+                do { try await self.browser.openDirect(target: target, tunConnected: self.vpnState == "connected" && self.vpn.mode == "tun") }
+                catch is CancellationError {}
+                catch { if !self.shuttingDown { self.message = error.localizedDescription } }
+            }
+            return
+        }
         run { [self] in guard let auth, authenticated, let origin = resourceOrigin else { throw VPNError("请刷新资源列表。") }; try await browser.open(resource, target: target, auth: auth, origin: origin, tunConnected: vpnState == "connected" && vpn.mode == "tun") }
     }
     func connect() {
@@ -183,7 +198,7 @@ struct VPNConnectionRequest {
         shuttingDown = true
         let pending = operation
         return await shutdownCoordinator.shutdown(cancel: { [self] in
-            preparationWait?.cancel(); operation?.cancel(); await auth?.cancelPending()
+            preparationWait?.cancel(); operation?.cancel(); directOperation?.cancel(); await auth?.cancelPending()
         }, stopVPN: { [self] in try await vpn.stop() }, drain: { await pending?.value }, closeWeb: { [self] in await browser.close() }, logout: { [self] in
             let client = auth; auth = nil; try await client?.logout()
         }, clear: { [self] in

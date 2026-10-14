@@ -34,6 +34,7 @@ func connectSocket(_ path: String, uid: uid_t) throws -> FileHandle? {
     guard lstat("/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-control", &directory) == 0, lstat(path, &file) == 0 else { if errno == ENOENT { return nil }; throw VPNError("无法检查 VPN 控制接口。") }
     guard directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == 0, directory.st_mode & 0o022 == 0, file.st_mode & S_IFMT == S_IFSOCK, file.st_uid == uid, file.st_mode & 0o777 == 0o600 else { throw VPNError("VPN 控制接口权限无效。") }
     let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0); guard fd >= 0 else { throw VPNError("无法创建 VPN 控制连接。") }
+    guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { Darwin.close(fd); throw VPNError("无法隔离 VPN 控制连接。") }
     var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
     let bytes = Array(path.utf8) + [0]
     guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(fd); throw VPNError("VPN 控制路径过长。") }

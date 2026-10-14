@@ -87,6 +87,8 @@ func serviceInstallScript(helper: String, helperHash: String, broker: String, br
             if control != nil { break }; try await Task.sleep(nanoseconds: 50_000_000)
         }
         guard let control else { throw VPNError("Service socket unavailable") }
+        let descriptorFlags = fcntl(control.fileDescriptor, F_GETFD)
+        guard descriptorFlags >= 0, descriptorFlags & FD_CLOEXEC != 0 else { throw VPNError("VPN control descriptor can be inherited") }
         try await brokerHandshake(control)
         try control.write(contentsOf: Data("{\"mode\":\"recover\"}\n".utf8))
         let bytes = try await Task.detached { try readHelperChunk(control) }.value
