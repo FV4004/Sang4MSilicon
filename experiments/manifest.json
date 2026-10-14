@@ -1,0 +1,22 @@
+{
+  "A": [
+    "vpn-helper/lab.go",
+    "vpn-helper/resumable.go",
+    "vpn-helper/tun_darwin.go"
+  ],
+  "B": [
+    "vpn-helper/lab.go",
+    "vpn-helper/lab_packets.go",
+    "vpn-helper/lab_packets_test.go",
+    "vpn-helper/resumable.go",
+    "vpn-helper/tun_darwin.go"
+  ],
+  "C": [
+    "vpn-helper/lab.go",
+    "vpn-helper/resumable.go",
+    "vpn-helper/tun_darwin.go",
+    "vpn-patches/mchip_token_drain.go",
+    "vpn-patches/mchip_token_drain_test.go",
+    "scripts/prepare-vpn.py"
+  ]
+}
