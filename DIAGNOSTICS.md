@@ -1,10 +1,12 @@
-# Connect v0.5.0-beta.12 · 通道诊断
+# Connect v0.5.0-beta.13 · 通道诊断
+
+新增“复制日志”：除登录成功提示外，其他非空提示均提供复制按钮。复制完整文本，包含界面行数限制省略的 LAB／D12 诊断。资源页底部也可复制当前 VPN 诊断。沿用 beta.12 的隧道实现，本版不宣称修复已观察到的断连。
 
 针对 beta.11 A/B/C 内网访问时均出现 SEND_DATA_BROKEN_PIPE 的结果，基于 A 的 MTU 1400 和原有 L3IP 数据路径增加通道诊断。未采用 B/C 的额外变量；未实现或猜测 IPCP、压缩协商或协议心跳。此版本用于定位真实断连原因，不宣称已修复真实网关兼容性。
 
 ## 下载与测试
 
-下载 `Connect-0.5.0-beta.12-mac-universal.zip`，解压即得完整应用，不需要运行 Repackage.command。支持 Apple Silicon 与 Intel，macOS 13+。使用独立应用标识；首次安装对应后台服务可能需要管理员授权。仅使用临时签名，未公证。
+下载 `Connect-0.5.0-beta.13-mac-universal.zip`，解压即得完整应用，不需要运行 Repackage.command。支持 Apple Silicon 与 Intel，macOS 13+。使用独立应用标识；首次安装对应后台服务可能需要管理员授权。仅使用临时签名，未公证。
 
 先断开并完全退出其他客户端。连接后等待约 2 分钟，再访问内网资源。出错时复制完整提示，包括 LAB_A 和新增的 `D12` 通道诊断。切换版本时重新登录。
 
@@ -22,4 +24,4 @@
 
 macOS 15 CI 运行 Swift、Go race、协议回归、UTUN、严格签名校验、后台服务复用/失败清理与窗口/菜单检查；实际网关和 macOS 26 行为仍需实测。附完整源码、固定上游与压缩库归档及 SHA256 校验值。
 
-从对应 source.zip 全新解压后，直接运行 `python3 scripts/prepare-vpn.py`，再以 `LAB_PROFILE=A python3 scripts/package-native.py` 构建。beta.12 的根目录已包含当前诊断源码，不需要激活旧的 beta.11 overlay。AGPL-3.0，源码与补丁随下载提供。
+从对应 source.zip 全新解压后，直接运行 `python3 scripts/prepare-vpn.py`，再以 `LAB_PROFILE=A python3 scripts/package-native.py` 构建。beta.13 的根目录已包含当前诊断源码，不需要激活旧的 beta.11 overlay。AGPL-3.0，源码与补丁随下载提供。

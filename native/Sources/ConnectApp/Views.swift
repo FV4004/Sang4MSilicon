@@ -13,7 +13,9 @@ struct RootView: View {
                     Picker("页面", selection: $model.tab) { Text("连接").tag(0); Text("内网资源").tag(1) }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
                 }
                 if model.tab == 0 { connection; Spacer(minLength: 0) } else { resources }
-                if model.authenticated { Text(model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("statusMessage") }
+                if model.authenticated {
+                    CopyableFeedback(text: statusFeedback, copyText: FeedbackLog.report(message: model.message, loginMessage: model.loginMessage, loginSucceeded: model.loginTone == .success, vpnDetail: model.vpnDetail), color: .secondary, font: .caption, lines: 2, showCopy: true, identifier: "statusMessage")
+                }
                 HStack(spacing: 20) { Button("关闭方式", action: closeSettings); Button("退出程序", action: quit); Spacer(); if model.vpnState == "disconnected" { Button("恢复网络配置", action: model.recoverNetwork).disabled(model.busy); Button("修复后台服务", action: model.repairService).disabled(model.busy) } }.buttonStyle(.link).font(.caption)
                 Text("仅供开源学习与研究。默认记忆服务器与用户 ID；密码可选保存到钥匙串，会话不保存。").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }.padding(.top, 44).padding(.horizontal, 40).padding(.bottom, 20).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -86,7 +88,7 @@ struct RootView: View {
                     if model.vpnState == "disconnected" { Button("连接 VPN", action: model.connect).buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy) }
                     else { Button("断开连接", action: model.disconnect).buttonStyle(.borderedProminent).tint(Color(nsColor: .systemRed)).controlSize(.large).disabled(model.vpnState == "stopping") }
                 }.padding(.top, 4)
-                Text(model.vpnDetail).font(.callout).foregroundStyle(model.vpnState == "connected" ? Color(nsColor: .systemGreen) : .secondary).textSelection(.enabled).lineLimit(3)
+                CopyableFeedback(text: model.vpnDetail, color: model.vpnState == "connected" ? Color(nsColor: .systemGreen) : .secondary, font: .callout, lines: 3, showCopy: true, identifier: "vpnFeedback")
                 Text("TUN 模式无需单独配置应用代理；断开后恢复本次添加的路由与内网 DNS。").font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
@@ -99,7 +101,10 @@ struct RootView: View {
         case .warning: color = Color(nsColor: .systemOrange)
         case .error: color = Color(nsColor: .systemRed)
         }
-        return Text(model.loginMessage).font(.callout).foregroundStyle(color).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("loginFeedback")
+        return CopyableFeedback(text: model.loginMessage, color: color, font: .callout, lines: 3, showCopy: model.loginTone != .success, identifier: "loginFeedback")
+    }
+    private var statusFeedback: String {
+        model.loginTone == .success && model.message == model.loginMessage ? model.vpnDetail : model.message
     }
     private var vpnBadge: some View {
         let connected = model.vpnState == "connected"
@@ -166,5 +171,29 @@ struct ResourceCard: View {
             }
 
         }.padding(10).frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10)).overlay { RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5) }
+    }
+}
+
+struct CopyableFeedback: View {
+    let text: String
+    var copyText: String? = nil
+    let color: Color
+    let font: Font
+    let lines: Int
+    let showCopy: Bool
+    let identifier: String
+    @State private var copied = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(text).font(font).foregroundStyle(color).textSelection(.enabled).lineLimit(lines)
+                .frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier(identifier)
+            if FeedbackLog.canCopy(copyText ?? text, loginSucceeded: !showCopy) {
+                Button(copied ? "已复制" : "复制日志") {
+                    copied = FeedbackLog.copy(copyText ?? text)
+                    Task { try? await Task.sleep(nanoseconds: 2_000_000_000); copied = false }
+                }.controlSize(.small).accessibilityIdentifier(identifier + "Copy")
+                .help("复制完整提示与诊断，包含界面中省略的内容")
+            }
+        }.onChange(of: text) { _ in copied = false }
     }
 }
