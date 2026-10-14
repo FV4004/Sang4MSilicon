@@ -61,7 +61,7 @@ func TestPacketDiagnosticStorageBoundedDuringSuccessfulTraffic(t *testing.T) {
 		d.sendBegin(diagTCP([4]byte{192, 0, 2, 1}, [4]byte{198, 51, 100, 2}, uint16(10000+i), 80, 0x10, 0))
 		d.sent()
 	}
-	if len(d.packets) != 12 || len(d.flows) > 12 || len(d.summary()) > 4096 {
+	if len(d.packets) != 12 || len(d.flows) > 32 || len(d.summary()) > 4096 {
 		t.Fatal("unbounded diagnostic storage")
 	}
 }

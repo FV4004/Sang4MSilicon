@@ -13,16 +13,18 @@ import (
 // Each worker owns one session. Reports contain no payloads, endpoints or
 // credentials. Flow keys exist only in a small transient in-memory map.
 type diagnosticState struct {
-	dropNotedTX, dropNotedRX bool
-	mu                       sync.Mutex
-	start                    time.Time
-	events                   []string
-	txTry, txOK, rxOK        uint64
-	localClose               bool
-	vip                      [4]byte
-	flows                    map[[13]byte]int
-	packets                  []string
-	guard                    *tcpSessionGuard
+	anchors                              map[[13]byte]*tcpSequenceAnchor
+	badIPTX, badTCPTX, badIPRX, badTCPRX uint64
+	dropNotedTX, dropNotedRX             bool
+	mu                                   sync.Mutex
+	start                                time.Time
+	events                               []string
+	txTry, txOK, rxOK                    uint64
+	localClose                           bool
+	vip                                  [4]byte
+	flows                                map[[13]byte]int
+	packets                              []string
+	guard                                *tcpSessionGuard
 }
 
 var diag = &diagnosticState{start: time.Now()}
@@ -93,7 +95,7 @@ func (d *diagnosticState) summary() string {
 		result += fmt.Sprintf(" tcp_drop_tx=%d tcp_drop_rx=%d local_rst=%d", d.guard.droppedTX, d.guard.droppedRX, d.guard.resets)
 		d.guard.mu.Unlock()
 	}
-	return result
+	return result + fmt.Sprintf(" ip_bad_tx=%d tcp_bad_tx=%d ip_bad_rx=%d tcp_bad_rx=%d", d.badIPTX, d.badTCPTX, d.badIPRX, d.badTCPRX)
 }
 
 // One observer per otherwise unread direction. Never writes a guessed reply,
@@ -145,7 +147,7 @@ func (d *diagnosticState) setVIP(ip []byte) {
 	}
 }
 func (d *diagnosticState) packetLocked(direction string, packet []byte) {
-	if len(d.packets) >= 12 || len(packet) < 20 || packet[0]>>4 != 4 {
+	if len(packet) < 20 || packet[0]>>4 != 4 {
 		return
 	}
 	ihl := int(packet[0]&15) * 4
@@ -184,7 +186,9 @@ func (d *diagnosticState) packetLocked(direction string, packet []byte) {
 	if !fragment && proto == 17 && total >= ihl+8 {
 		payload = total - ihl - 8
 	}
+	side := 0
 	if string(left[:]) > string(right[:]) {
+		side = 1
 		left, right = right, left
 	}
 	var key [13]byte
@@ -195,7 +199,7 @@ func (d *diagnosticState) packetLocked(direction string, packet []byte) {
 		d.flows = make(map[[13]byte]int)
 	}
 	flow := d.flows[key]
-	if flow == 0 {
+	if flow == 0 && len(d.flows) < 32 {
 		flow = len(d.flows) + 1
 		d.flows[key] = flow
 	}
@@ -211,7 +215,68 @@ func (d *diagnosticState) packetLocked(direction string, packet []byte) {
 	if fragment {
 		kind += "_FRAG"
 	}
-	d.packets = append(d.packets, fmt.Sprintf("%s_F%d_%s_FLAGS_%s_SRC_%s_DST_%s_LEN_%d_PAY_%d@%dms", direction, flow, kind, flags, source, peer, total, payload, time.Since(d.start).Milliseconds()))
+	ipCK := "GOOD"
+	if packetChecksum(packet[:ihl]) != 0 {
+		ipCK = "BAD"
+		if direction == "TX" {
+			d.badIPTX++
+		} else if direction == "RX" {
+			d.badIPRX++
+		}
+	}
+	tcpCK, seqRel, ackRel := "NA", "NA", "NA"
+	if proto == 6 && !fragment && flags != "NA" {
+		pseudo := make([]byte, 12+total-ihl)
+		copy(pseudo[:8], packet[12:20])
+		pseudo[9] = 6
+		binary.BigEndian.PutUint16(pseudo[10:12], uint16(total-ihl))
+		copy(pseudo[12:], packet[ihl:total])
+		tcpCK = "GOOD"
+		if packetChecksum(pseudo) != 0 {
+			tcpCK = "BAD"
+			if direction == "TX" {
+				d.badTCPTX++
+			} else if direction == "RX" {
+				d.badTCPRX++
+			}
+		}
+		clear(pseudo)
+		if flow != 0 {
+			if d.anchors == nil {
+				d.anchors = make(map[[13]byte]*tcpSequenceAnchor)
+			}
+			anchor := d.anchors[key]
+			if anchor == nil {
+				anchor = &tcpSequenceAnchor{}
+				d.anchors[key] = anchor
+			}
+			seq := binary.BigEndian.Uint32(packet[ihl+4 : ihl+8])
+			ack := binary.BigEndian.Uint32(packet[ihl+8 : ihl+12])
+			tcpFlags := packet[ihl+13]
+			if tcpFlags&2 != 0 {
+				if tcpFlags&0x10 == 0 && anchor.seen[side] && anchor.base[side] != seq {
+					*anchor = tcpSequenceAnchor{}
+				}
+				if !anchor.seen[side] {
+					anchor.seen[side] = true
+					anchor.base[side] = seq
+				}
+			}
+			if anchor.seen[side] {
+				seqRel = fmt.Sprint(seq - anchor.base[side])
+			}
+			if tcpFlags&0x10 != 0 && anchor.seen[1-side] {
+				ackRel = fmt.Sprint(ack - anchor.base[1-side])
+			}
+		}
+	}
+	entry := fmt.Sprintf("%s_F%d_%s_FLAGS_%s_SRC_%s_DST_%s_LEN_%d_PAY_%d_IPCK_%s_TCPCK_%s_SEQREL_%s_ACKREL_%s@%dms", direction, flow, kind, flags, source, peer, total, payload, ipCK, tcpCK, seqRel, ackRel, time.Since(d.start).Milliseconds())
+	if len(d.packets) < 12 {
+		d.packets = append(d.packets, entry)
+	} else {
+		copy(d.packets[6:], d.packets[7:])
+		d.packets[11] = entry
+	}
 }
 func (d *diagnosticState) publishSnapshots(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
@@ -242,4 +307,9 @@ func (d *diagnosticState) filtered(packet []byte, out bool) {
 			d.dropNotedRX = true
 		}
 	}
+}
+
+type tcpSequenceAnchor struct {
+	base [2]uint32
+	seen [2]bool
 }

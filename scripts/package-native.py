@@ -4,8 +4,8 @@ from pathlib import Path
 import hashlib, json, os, plistlib, shutil, subprocess
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = os.environ.get('LAB_PROFILE', '')
-if PROFILE not in ('A', 'B'): raise SystemExit('LAB_PROFILE must be A or B')
-VERSION = '0.5.0-beta.17-' + PROFILE.lower()
+if PROFILE != 'A': raise SystemExit('LAB_PROFILE must be A')
+VERSION = '0.5.0-beta.18'
 REFRESH_MODE = 'disabled' if PROFILE == 'A' else 'enabled'
 DIST = ROOT / 'dist-native'
 APP = DIST / 'Connect.app'
@@ -30,7 +30,7 @@ for arch in ['arm64', 'x86_64']:
     run('codesign', '--verify', '--strict', '--verbose=2', str(thin))
 run('lipo', '-create', str(DIST / 'helper-arm64'), str(DIST / 'helper-x86_64'), '-output', str(binaries / 'mchip-vpn-helper'))
 run('lipo', '-create', str(DIST / 'Broker-arm64'), str(DIST / 'Broker-x86_64'), '-output', str(binaries / 'mchip-vpn-broker'))
-info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5171' if PROFILE == 'A' else '5172', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5018', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--verify', '--strict', '--all-architectures', '--verbose=2', str(binaries / 'mchip-vpn-helper'))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-broker'))
