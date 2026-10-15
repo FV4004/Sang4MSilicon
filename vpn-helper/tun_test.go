@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func packet(body []byte) []byte {
@@ -210,5 +211,23 @@ func TestLargeResolverPlanRecoversAndCancellationLeavesNoFiles(t *testing.T) {
 	files, _ = os.ReadDir(dir)
 	if len(files) != 0 {
 		t.Fatal("cancelled plan modified files")
+	}
+}
+
+func TestPacketWorkerPanicBecomesTunnelFailure(t *testing.T) {
+	failures := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer reportPacketWorkerPanic(failures)
+		panic("private packet contents")
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("packet worker did not exit")
+	}
+	if err := <-failures; err != errPacketWorkerPanic || err.Error() != "packet worker panic" {
+		t.Fatal("panic diagnostic leaked data or was lost")
 	}
 }

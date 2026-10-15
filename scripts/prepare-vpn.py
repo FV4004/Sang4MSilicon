@@ -60,3 +60,19 @@ func mchipServerName(server string) string {
 shutil.copyfile(dest / 'LICENSE', ROOT / 'LICENSE')
 shutil.copyfile(dest / 'LICENSE', ROOT / 'app/LICENSE')
 print(f'Prepared zju-connect {REV}; TLS verification and session bounds patches applied')
+# Reproducible protocol/lifecycle fixes, included in the published source archive.
+import runpy
+runpy.run_path(str(ROOT / 'vpn-patches/patch.py'))['apply'](dest, ROOT / 'vpn-patches')
+
+shutil.copyfile(ROOT / "vpn-patches/mchip_control_diagnostic.go", dest / "client/easyconnect/mchip_control_diagnostic.go")
+
+runpy.run_path(str(ROOT / "vpn-patches/session_refresh_patch.py"))["apply"](dest)
+shutil.copyfile(ROOT / "vpn-patches/mchip_session_refresh_test.go", dest / "client/easyconnect/mchip_session_refresh_test.go")
+
+shutil.copyfile(ROOT / "vpn-patches/mchip_resource_acl.go", dest / "client/easyconnect/mchip_resource_acl.go")
+p=dest / 'client/easyconnect/parse.go'
+s=p.read_text();old='} else {\n\t\t\t\tlog.DebugPrintf("Unknown protocol: %s", protoStr)'
+if s.count(old)!=1:raise SystemExit('Resource protocol fallback anchor mismatch')
+s=s.replace(old,'} else if protoStr == "" && (rc.SelectAttrValue("svc", "") == "http" || rc.SelectAttrValue("svc", "") == "https") { protocol = "tcp" ' + old)
+p.write_text(s)
+shutil.copyfile(ROOT / 'vpn-patches/mchip_resource_acl_test.go', dest / 'client/easyconnect/mchip_resource_acl_test.go')

@@ -1,3 +1,40 @@
+# macOS 原生 Swift 客户端（迁移分支）
+
+此分支 `feature/swift-native` 基于资源集成版提交 `8039c4bf1a86cc194d6375fb598058b6c7751461`，将发行应用迁移为 SwiftUI／AppKit／WKWebView。原 Electron 源码保留供协议对照，原生发行包不包含 Electron、Node.js 或 Chromium。VPN 转发仍使用现有 Go 辅助程序，内网分流策略不变。
+
+## 原生功能
+
+- HTTP／HTTPS 登录、会话 Cookie、RSA PKCS#1 防重放密码加密、图片验证码和动态验证步骤。
+- 默认记忆服务器及用户 ID；每次启动密码记忆默认关闭，手动勾选后才读取或保存 macOS 钥匙串密码。失败后保留用户输入；服务器地址编辑期间不自动验证，结束编辑或按回车后获取配置，启动时对已记忆地址自动获取验证码。原 Electron 保存的密码不会自动导入。
+- 分组、资源名称、IP／域名与端口展示，分组筛选和搜索，三列连续滚动、每屏约三行；卡片隐藏网址并提供复制按钮；普通 HTTP／HTTPS 在 TUN 连通后通过默认浏览器打开；网关 Web 在临时 WKWebView 会话内打开。自动 SSO 和原生远程应用启动仍不支持。
+- 最终认证成功后自动连接 TUN。系统状态栏图标与连接状态，菜单提供连接 VPN、断开 VPN、显示界面、关闭行为设置和退出程序。未登录时点击连接会显示登录界面。
+- 首次关闭窗口可选择最小化、退出或取消，并记忆选择；最小化保留 VPN，显式退出不受此设置影响。
+- 正常退出先取消进行中的操作，再断开 TUN、恢复本次路由／DNS、请求网关注销并清理内存认证及 Web 会话。网关离线或系统清理失败会显示提示；强制结束和断电不能保证远程注销。
+- Universal 2：应用和辅助程序均支持 arm64 与 x86_64；macOS 13 及以上。首次授权安装系统后台服务，同版后续连接复用；更新代码需要重新授权。服务仅接受指定用户及当前客户端签名，VPN 工作进程在断连后退出，后台服务空闲时不保留认证会话或网络接管。管理员密码不保存。
+
+## 构建与验证
+
+在安装 Xcode／Command Line Tools 和 Go 1.26.0 的 macOS 上运行：
+
+```sh
+cd native
+swift test
+cd ..
+python3 scripts/prepare-vpn.py
+(cd vpn-helper && go test -race ./...)
+python3 scripts/package-native.py
+```
+
+输出 `dist-native/Connect.app`。可用 Xcode 打开 `native/Package.swift` 开发，但完整应用打包及 Go 辅助程序仍使用脚本。单独运行 SwiftPM 可验证界面；TUN 需要完整包内辅助程序与校验文件。
+
+`.github/workflows/native.yml` 运行 Swift 协议测试、Go 回归、原生 UTUN 测试及主窗口／状态栏菜单 smoke，构建两个架构并验证签名与校验。测试包只有临时签名，未做 Developer ID 签名与公证。真实网关认证、管理员授权和 WebKit 页面兼容性需要安装测试。
+
+源码使用 AGPL-3.0，随发行版包含本项目及所用 Go 上游的源码和许可证。
+
+---
+
+以下为保留的 Electron 版本开发说明：
+
 # M Chip VPN · 0.4.0-beta.1
 
 仅供开源学习与研究的 macOS arm64 网络客户端。支持 HTTP／HTTPS 账号认证、服务器图片验证码、原生 IPv4 TUN 分流和本地 SOCKS5／HTTP 代理。账号认证已由用户验证；此版的数据通道与用户网关兼容性仍需实际测试。
@@ -6,7 +43,7 @@
 
 1. 从 Release 下载 `MChipVPNLogin-0.4.0-beta.1-mac-arm64.zip`，解压并放入“应用程序”。要求 macOS 13+。
 2. 输入 HTTP 或 HTTPS 服务器地址；省略端口使用 80／443。应用默认记忆服务器地址与对应用户 ID，下次打开自动回填并获取验证码。密码默认不记忆；勾选“记忆密码”后，提交登录时使用 macOS 钥匙串支持的 Electron safeStorage 加密保存，绑定服务器与用户 ID。取消勾选立即删除已保存的加密密码。登录失败保留本次输入，认证会话不落盘。
-3. 认证后默认选择“系统 TUN · 内网分流”，点击连接并完成 macOS 管理员授权。数据隧道端口通常是 443，独立于 HTTP 登录端口。
+3. 认证成功后自动建立“系统 TUN · 内网分流”，首次连接完成 macOS 管理员授权，同版后续连接复用。数据隧道端口通常是 443，独立于 HTTP 登录端口。
 4. 界面显示系统接口、虚拟 IP 和资源数量后，应用可以直接访问授权的 IPv4 内网资源，无需设置代理。
 5. 断开、退出登录或退出应用会先结束隧道并清理本次网络设置。
 
@@ -24,7 +61,7 @@ DNS 只在 `/private/etc/resolver` 为下发域名创建独立 resolver 文件�
 
 DNS 分流最多支持 16,384 个有效域；父域已经覆盖的子域合并到同一 resolver。完整恢复计划在创建文件前一次写入，批量安装支持取消，域名查找按标签索引。
 
-关闭 UTUN 会删除该接口及其关联路由。恢复日志保存在 root 所有的 `/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-state/resolver-lease.json`，仅记录本次创建的 DNS 文件与内容，不含认证信息。异常退出或重启后，界面提供“恢复上次网络配置”；管理员授权恢复完成后再自动获取验证码。仅删除内容仍匹配记录的文件，外部改动会明确报错并保留记录。
+关闭 UTUN 会删除该接口及其关联路由。恢复日志保存在 root 所有的 `/Library/PrivilegedHelperTools/dev.connectlab.mchip-vpn-state/resolver-lease.json`，仅记录本次创建的 DNS 文件与内容，不含认证信息。失败、异常退出或重启后，可点击窗口底部“恢复网络配置”，无需登录；恢复会复用已授权的后台服务。仅删除内容仍匹配记录的文件，外部改动会明确报错并保留记录。
 
 界面铺满初始窗口，使用沉浸标题栏，无滚动条；认证成功后切换为连接面板。商业 VPN 品牌文案不出现在应用界面。组件署名和完整许可保留在独立源码文件中。
 

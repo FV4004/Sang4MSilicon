@@ -192,13 +192,19 @@ func openDevice(ip string) (*nativeDevice, error) {
 	f := os.NewFile(uintptr(fd), name)
 	ok = true
 	device := &nativeDevice{file: f, name: name}
-	if _, e = systemCommand("/sbin/ifconfig", name, "inet", ip, ip, "netmask", "255.255.255.255", "mtu", "1400", "up"); e != nil {
+	if _, e = systemCommand("/sbin/ifconfig", name, "inet", ip, ip, "netmask", "255.255.255.255", "mtu", labMTU, "up"); e != nil {
 		f.Close()
 		return nil, e
 	}
 	return device, nil
 }
-func (d *nativeDevice) Close() error               { return d.file.Close() }
+func (d *nativeDevice) Close() error {
+	e := d.file.Close()
+	if errors.Is(e, os.ErrClosed) {
+		return nil
+	}
+	return e
+}
 func (d *nativeDevice) Read(p []byte) (int, error) { return d.file.Read(p) }
 func (d *nativeDevice) Write(p []byte) (int, error) {
 	if !validIPv4(p) {
@@ -325,6 +331,15 @@ func (t *routeTable) add(p netip.Prefix) error {
 	return nil
 }
 func runNativeTun(ctx context.Context, c config, tag string) (result error) {
+	cleanupConfirmed := true
+	defer func() {
+		if recover() != nil {
+			fail("WORKER_PANIC")
+			if !cleanupConfirmed {
+				result = errors.New("worker panic without cleanup confirmation")
+			}
+		}
+	}()
 	log.SetOutput(io.Discard)
 	journal := stateDir + "/resolver-lease.json"
 	if e := secureDirectory(resolverDir); e != nil {
@@ -342,8 +357,9 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		fail("CONNECT_FAILED")
 		return nil
 	}
-	vpn := easyconnect.NewClient(easyconnect.Options{Server: c.Server, SessionID: c.SessionID, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true}, UnderlayDialer: underlay})
+	vpn := easyconnect.NewClient(easyconnect.Options{DisableSessionUpdate: sessionRefreshMode == "disabled", SessionDiagnostic: diag.note, Server: c.Server, SessionID: c.SessionID, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true}, UnderlayDialer: underlay})
 	defer vpn.Close()
+	defer diag.closing()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -355,10 +371,13 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	}()
 	stage("token")
 	if e = vpn.Setup(); e != nil {
-		if certError(e) {
+		labError("SETUP", e)
+		if errors.Is(e, easyconnect.ErrMChipSessionExpired) {
+			fail("TUN_SESSION_EXPIRED")
+		} else if certError(e) {
 			fail("TLS_CERT_INVALID")
 		} else {
-			fail("CONNECT_FAILED")
+			fail(labFailure("CONNECT_FAILED"))
 		}
 		return nil
 	}
@@ -374,6 +393,10 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		fail("TUNNEL_FAILED")
 		return nil
 	}
+	if control := vpn.DiagnosticControlStream(); control != nil {
+		go diag.observe(ctx, control, "CONTROL")
+	}
+	diag.setVIP(ip.To4())
 	stage("ip")
 	set, _ := vpn.IPSet()
 	ranges, _ := vpn.IPResources()
@@ -407,24 +430,41 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 		return nil
 	}
+	resourcePolicy, e := newOutboundResourcePolicy(ranges, domains, static, servers)
+	if e != nil {
+		fail("RESOURCE_POLICY_UNAVAILABLE")
+		return nil
+	}
+	diag.mu.Lock()
+	diag.acl = resourcePolicy
+	diag.mu.Unlock()
 	stage("tunnel")
 	send, e := vpn.SendConn()
 	if e != nil {
-		fail("TUNNEL_FAILED")
+		fail(tunnelErrorCode(e))
 		return nil
 	}
 	defer send.Close()
+	go diag.observe(ctx, send, "SEND")
 	recv, e := vpn.RecvConn()
 	if e != nil {
-		fail("TUNNEL_FAILED")
+		fail(tunnelErrorCode(e))
 		return nil
 	}
 	defer recv.Close()
+	tunnel := &packetTunnel{ctx: ctx, send: send, recv: recv,
+		openSend: func() (io.WriteCloser, error) { return vpn.SendConn() },
+		openRecv: func() (io.ReadCloser, error) { return vpn.RecvConn() },
+		retry:    func(direction string) { emit(map[string]string{"event": "retry", "direction": direction}) },
+		resumed:  func(direction string) { emit(map[string]string{"event": "resumed", "direction": direction}) },
+	}
+	defer tunnel.Close()
 	device, e := openDevice(ip.String())
 	if e != nil {
 		fail("TUN_UNAVAILABLE")
 		return nil
 	}
+	cleanupConfirmed = false
 	table := &routeTable{device: device.name, gateways: map[netip.Addr]bool{}}
 	for _, v := range underlay.addresses {
 		a, _ := netip.AddrFromSlice(v)
@@ -439,10 +479,10 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			dnsServer.Close()
 		}
 		closeErr := device.Close()
-		send.Close()
-		recv.Close()
+		tunnel.Close()
 		cleanupErr := cleanupLease(resolverDir, journal)
 		_, _ = systemCommand("/usr/bin/dscacheutil", "-flushcache")
+		cleanupConfirmed = closeErr == nil && cleanupErr == nil
 		if closeErr != nil || cleanupErr != nil {
 			fail("CLEANUP_FAILED")
 			result = errors.New("network cleanup failed")
@@ -459,7 +499,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 	}
 	if len(names) > 0 {
-		dnsServer, e = newSplitDNS(names, static, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) })
+		dnsServer, e = newSplitDNSWithPolicy(names, static, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) }, resourcePolicy.bindDNS)
 		if e != nil {
 			fail("DNS_CONFLICT")
 			return nil
@@ -470,12 +510,18 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 		_, _ = systemCommand("/usr/bin/dscacheutil", "-flushcache")
 	}
+	tcpGuard := newTCPSessionGuard()
+	diag.mu.Lock()
+	diag.guard = tcpGuard
+	diag.mu.Unlock()
 	errs := make(chan error, 2)
 	go func() {
+		defer reportPacketWorkerPanic(errs)
 		buf := make([]byte, 65539)
 		for {
 			n, e := device.Read(buf)
 			if e != nil {
+				labError("UTUN_READ", e)
 				errs <- e
 				return
 			}
@@ -484,28 +530,53 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			}
 			packet := buf[4:n]
 			if !validIPv4(packet) {
-				errs <- errors.New("invalid local frame")
-				return
+				continue // Drop malformed local packets without terminating a healthy tunnel.
 			}
-			if written, writeErr := send.Write(packet); writeErr != nil || written != len(packet) {
-				e = writeErr
-				if e == nil {
-					e = io.ErrShortWrite
+			if allowed, reset := resourcePolicy.filter(packet); !allowed {
+				diag.aclRejected(packet)
+				if reset != nil {
+					if _, e := device.Write(reset); e != nil {
+						labError("ACL_LOCAL_RST_WRITE", e)
+						errs <- e
+						return
+					}
 				}
+				continue
+			}
+			if allowed, reset := tcpGuard.filter(packet, true); !allowed {
+				diag.filtered(packet, true)
+				if reset != nil {
+					if _, e := device.Write(reset); e != nil {
+						labError("LOCAL_RST_WRITE", e)
+						errs <- e
+						return
+					}
+					diag.note("TCP_EPOCH_LOCAL_RST")
+				}
+				continue
+			}
+			normalizeLabPacket(packet)
+			if e := tunnel.WritePacket(packet); e != nil {
 				errs <- e
 				return
 			}
 		}
 	}()
 	go func() {
+		defer reportPacketWorkerPanic(errs)
 		buf := make([]byte, 65535)
 		for {
-			p, e := readIPv4(recv, buf)
+			p, e := tunnel.ReadPacket(buf)
 			if e != nil {
 				errs <- e
 				return
 			}
+			if allowed, _ := tcpGuard.filter(p, false); !allowed {
+				diag.filtered(p, false)
+				continue
+			}
 			if _, e = device.Write(p); e != nil {
+				labError("UTUN_WRITE", e)
 				errs <- e
 				return
 			}
@@ -514,12 +585,105 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	if ctx.Err() != nil {
 		return nil
 	}
+	snapshotCtx, snapshotCancel := context.WithCancel(ctx)
+	defer snapshotCancel()
+	go diag.publishSnapshots(snapshotCtx)
+	go resourcePolicy.prime(snapshotCtx, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) })
+	diag.note("READY")
 	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names), "warnings": policy.Warnings})
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-errs:
-		fail("TUNNEL_FAILED")
+	case err := <-errs:
+		if errors.Is(err, errPacketWorkerPanic) {
+			fail("WORKER_PANIC")
+		} else {
+			fail(tunnelErrorCode(err))
+		}
 		return nil
 	}
 }
+
+// The root broker verifies the requesting application's live code identity.
+// Each session gets a separate worker; closing stdin triggers network cleanup.
+func tunStdio() error {
+	if os.Geteuid() != 0 {
+		return errors.New("root required")
+	}
+	if e := secureDirectory(stateDir); e != nil {
+		fail("STATE_DIRECTORY_UNSAFE")
+		return e
+	}
+	if e := secureDirectory(socketDir); e != nil {
+		fail("CONTROL_DIRECTORY_UNSAFE")
+		return e
+	}
+	lock, e := os.OpenFile(socketDir+"/active.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if e != nil {
+		fail("TUN_LOCK_FAILED")
+		return e
+	}
+	defer lock.Close()
+	if e = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
+		fail("TUN_BUSY")
+		return e
+	}
+	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 1024), 8192)
+	var c config
+	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &c) != nil {
+		fail("UNSUPPORTED_SESSION")
+		emit(map[string]string{"event": "stopped"}) // Rejected before any network configuration was touched.
+		return errors.New("invalid config")
+	}
+	if c.Mode == "recover" {
+		if e = secureDirectory(resolverDir); e == nil {
+			e = cleanupLease(resolverDir, stateDir+"/resolver-lease.json")
+		}
+		if e != nil {
+			fail("CLEANUP_FAILED")
+			return e
+		}
+		emit(map[string]string{"event": "stopped"})
+		return nil
+	}
+	if validate(c) != nil || c.Mode != "tun" {
+		fail("UNSUPPORTED_SESSION")
+		emit(map[string]string{"event": "stopped"}) // Rejected before any network configuration was touched.
+		return errors.New("invalid config")
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	go func() { scanner.Scan(); cancel() }()
+	e = runNativeTun(ctx, c, "service-"+strconv.Itoa(os.Getpid()))
+	c.SessionID = ""
+	if e == nil {
+		emit(map[string]string{"event": "stopped"})
+	}
+	return e
+}
+
+func tunnelErrorCodeRaw(err error) string {
+	if errors.Is(err, easyconnect.ErrSangforShutdown) {
+		return "TUN_SERVER_SHUTDOWN"
+	}
+	if errors.Is(err, easyconnect.ErrSangforReconnectLater) {
+		return "TUN_RECONNECT_LATER"
+	}
+	if errors.Is(err, easyconnect.ErrMChipSessionExpired) {
+		return "TUN_SESSION_EXPIRED"
+	}
+	if errors.Is(err, errInvalidFrame) {
+		return "TUN_FRAME_INVALID"
+	}
+	if certError(err) {
+		return "TLS_CERT_INVALID"
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "TUN_REMOTE_CLOSED"
+	}
+	return "TUNNEL_FAILED"
+}
+
+func tunnelErrorCode(err error) string { return labFailure(tunnelErrorCodeRaw(err)) }

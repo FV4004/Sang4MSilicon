@@ -43,9 +43,11 @@ type dialFunc func(context.Context, string, string) (net.Conn, error)
 var eventMu sync.Mutex
 var eventOutput io.Writer = os.Stdout
 
-func emit(v any)       { eventMu.Lock(); defer eventMu.Unlock(); _ = json.NewEncoder(eventOutput).Encode(v) }
-func stage(s string)   { emit(map[string]string{"event": "stage", "stage": s}) }
-func fail(code string) { emit(map[string]string{"event": "error", "code": code}) }
+func emit(v any)     { eventMu.Lock(); defer eventMu.Unlock(); _ = json.NewEncoder(eventOutput).Encode(v) }
+func stage(s string) { diag.note("STAGE_" + s); emit(map[string]string{"event": "stage", "stage": s}) }
+func fail(code string) {
+	emit(map[string]string{"event": "error", "code": code, "diagnostic": diag.summary()})
+}
 func validate(c config) error {
 	host, port, err := net.SplitHostPort(c.Server)
 	if err != nil || host == "" || strings.ContainsAny(host, "\r\n /\\") {
@@ -219,6 +221,12 @@ func run(c config) error {
 	}
 }
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--tun-stdio" {
+		if tunStdio() != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--tun-control" {
 		if tunControl(os.Args[2:]) != nil {
 			os.Exit(1)

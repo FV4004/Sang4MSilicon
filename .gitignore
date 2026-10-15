@@ -7,3 +7,8 @@ dist/
 .build/
 app/bin/
 PUBLISHED.json
+
+native/.build/
+native/.swiftpm/
+dist-native/
+__pycache__/

@@ -222,7 +222,7 @@ func readIPv4(r io.Reader, buf []byte) ([]byte, error) {
 	n := int(binary.BigEndian.Uint16(buf[2:4]))
 	h := int(buf[0]&15) * 4
 	if buf[0]>>4 != 4 || h < 20 || n < h {
-		return nil, errors.New("invalid IPv4 frame")
+		return nil, errInvalidFrame
 	}
 	if _, e := io.ReadFull(r, buf[20:n]); e != nil {
 		return nil, e
@@ -362,6 +362,9 @@ type splitDNS struct {
 }
 
 func newSplitDNS(domains []string, static map[string][]net.IP, servers []string, addRoute func(netip.Addr) error) (*splitDNS, error) {
+	return newSplitDNSWithPolicy(domains, static, servers, addRoute, nil)
+}
+func newSplitDNSWithPolicy(domains []string, static map[string][]net.IP, servers []string, addRoute func(netip.Addr) error, authorize func(string, []net.IP) error) (*splitDNS, error) {
 	udp, e := net.ListenPacket("udp4", "127.0.0.1:0")
 	if e != nil {
 		return nil, e
@@ -418,6 +421,13 @@ func newSplitDNS(domains []string, static map[string][]net.IP, servers []string,
 			return
 		}
 		if ips, ok := records[name]; ok && question.Qtype == dns.TypeA {
+			if authorize != nil {
+				if e := authorize(name, ips); e != nil {
+					reply.Rcode = dns.RcodeServerFailure
+					_ = w.WriteMsg(reply)
+					return
+				}
+			}
 			for _, ip := range ips {
 				if ip.To4() != nil {
 					reply.Answer = append(reply.Answer, &dns.A{Hdr: dns.RR_Header{Name: question.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: ip.To4()})
@@ -436,6 +446,12 @@ func newSplitDNS(domains []string, static map[string][]net.IP, servers []string,
 			}
 			if e != nil {
 				continue
+			}
+			if authorize != nil {
+				answers := authorizedDNSAnswers(name, r.Answer)
+				if e := authorize(name, answers); e != nil {
+					continue
+				}
 			}
 			for _, rr := range r.Answer {
 				if a, ok := rr.(*dns.A); ok {
@@ -467,4 +483,43 @@ func (s *splitDNS) Close() {
 	go func() { _ = s.tcp.ShutdownContext(ctx); done <- struct{}{} }()
 	<-done
 	<-done
+}
+
+var errPacketWorkerPanic = errors.New("packet worker panic")
+
+// Never include panic values: packet contents and session data can be sensitive.
+func reportPacketWorkerPanic(failures chan<- error) {
+	if recover() != nil {
+		failures <- errPacketWorkerPanic
+	}
+}
+
+// Bind only A records reachable from the authorized question through its CNAME chain.
+func authorizedDNSAnswers(name string, answers []dns.RR) []net.IP {
+	current := strings.ToLower(strings.TrimSuffix(name, "."))
+	seen := map[string]bool{}
+	var result []net.IP
+	for depth := 0; depth < 8; depth++ {
+		if seen[current] {
+			break
+		}
+		seen[current] = true
+		next := ""
+		for _, rr := range answers {
+			if strings.ToLower(strings.TrimSuffix(rr.Header().Name, ".")) != current {
+				continue
+			}
+			switch record := rr.(type) {
+			case *dns.A:
+				result = append(result, record.A)
+			case *dns.CNAME:
+				next = strings.ToLower(strings.TrimSuffix(record.Target, "."))
+			}
+		}
+		if next == "" {
+			break
+		}
+		current = next
+	}
+	return result
 }

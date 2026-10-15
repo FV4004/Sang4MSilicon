@@ -4,6 +4,8 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
+	easyconnect "github.com/mythologyli/zju-connect/client/easyconnect"
 	"net"
 	"net/netip"
 	"os"
@@ -74,5 +76,16 @@ func TestGatewayDNSAnswerPreservesPhysicalBypass(t *testing.T) {
 	}
 	if len(table.prefixes) != 0 {
 		t.Fatal("gateway was redirected into TUN")
+	}
+}
+
+func TestTunnelServerResponsesHaveDistinctActions(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		code string
+	}{{easyconnect.ErrSangforShutdown, "TUN_SERVER_SHUTDOWN"}, {easyconnect.ErrSangforReconnectLater, "TUN_RECONNECT_LATER"}, {easyconnect.ErrMChipSessionExpired, "TUN_SESSION_EXPIRED"}} {
+		if got := tunnelErrorCodeRaw(fmt.Errorf("wrapped: %w", test.err)); got != test.code {
+			t.Errorf("%s != %s", got, test.code)
+		}
 	}
 }
