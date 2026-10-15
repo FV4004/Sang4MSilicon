@@ -13,7 +13,7 @@ Connect 使用 SwiftUI、AppKit 和 WKWebView 构建界面，使用 Go 辅助程
 
 ## 安装与使用
 
-要求 **macOS 13 或更新版本**，支持 Apple Silicon（含 M 系列）与 Intel x86_64。
+要求 **macOS 13 或更新版本**，支持 Apple Silicon（含 M 系列）， Intel平台自测。
 
 1. 退出旧版 Connect，下载并打开 DMG，将 **Connect 拖入“应用程序”**；已有旧版时选择替换。
 2. 推出磁盘映像，从“应用程序”启动。测试版使用临时签名，尚未进行 Apple Developer ID 签名或公证；若系统阻止打开，请在“系统设置 → 隐私与安全性”按系统提示允许。
