@@ -68,3 +68,11 @@ shutil.copyfile(ROOT / "vpn-patches/mchip_control_diagnostic.go", dest / "client
 
 runpy.run_path(str(ROOT / "vpn-patches/session_refresh_patch.py"))["apply"](dest)
 shutil.copyfile(ROOT / "vpn-patches/mchip_session_refresh_test.go", dest / "client/easyconnect/mchip_session_refresh_test.go")
+
+shutil.copyfile(ROOT / "vpn-patches/mchip_resource_acl.go", dest / "client/easyconnect/mchip_resource_acl.go")
+p=dest / 'client/easyconnect/parse.go'
+s=p.read_text();old='} else {\n\t\t\t\tlog.DebugPrintf("Unknown protocol: %s", protoStr)'
+if s.count(old)!=1:raise SystemExit('Resource protocol fallback anchor mismatch')
+s=s.replace(old,'} else if protoStr == "" && (rc.SelectAttrValue("svc", "") == "http" || rc.SelectAttrValue("svc", "") == "https") { protocol = "tcp" ' + old)
+p.write_text(s)
+shutil.copyfile(ROOT / 'vpn-patches/mchip_resource_acl_test.go', dest / 'client/easyconnect/mchip_resource_acl_test.go')

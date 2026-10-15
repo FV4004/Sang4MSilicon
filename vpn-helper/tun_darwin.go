@@ -430,6 +430,14 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 		return nil
 	}
+	resourcePolicy, e := newOutboundResourcePolicy(ranges, domains, static, servers)
+	if e != nil {
+		fail("RESOURCE_POLICY_UNAVAILABLE")
+		return nil
+	}
+	diag.mu.Lock()
+	diag.acl = resourcePolicy
+	diag.mu.Unlock()
 	stage("tunnel")
 	send, e := vpn.SendConn()
 	if e != nil {
@@ -491,7 +499,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 		}
 	}
 	if len(names) > 0 {
-		dnsServer, e = newSplitDNS(names, static, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) })
+		dnsServer, e = newSplitDNSWithPolicy(names, static, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) }, resourcePolicy.bindDNS)
 		if e != nil {
 			fail("DNS_CONFLICT")
 			return nil
@@ -523,6 +531,17 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 			packet := buf[4:n]
 			if !validIPv4(packet) {
 				continue // Drop malformed local packets without terminating a healthy tunnel.
+			}
+			if allowed, reset := resourcePolicy.filter(packet); !allowed {
+				diag.aclRejected(packet)
+				if reset != nil {
+					if _, e := device.Write(reset); e != nil {
+						labError("ACL_LOCAL_RST_WRITE", e)
+						errs <- e
+						return
+					}
+				}
+				continue
 			}
 			if allowed, reset := tcpGuard.filter(packet, true); !allowed {
 				diag.filtered(packet, true)
@@ -569,6 +588,7 @@ func runNativeTun(ctx context.Context, c config, tag string) (result error) {
 	snapshotCtx, snapshotCancel := context.WithCancel(ctx)
 	defer snapshotCancel()
 	go diag.publishSnapshots(snapshotCtx)
+	go resourcePolicy.prime(snapshotCtx, servers, func(a netip.Addr) error { return table.add(netip.PrefixFrom(a, 32)) })
 	diag.note("READY")
 	emit(map[string]any{"event": "ready", "mode": "tun", "ip": ip.String(), "interface": device.name, "routeCount": len(plan), "dnsCount": len(names), "warnings": policy.Warnings})
 	select {

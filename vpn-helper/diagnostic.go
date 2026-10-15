@@ -13,6 +13,8 @@ import (
 // Each worker owns one session. Reports contain no payloads, endpoints or
 // credentials. Flow keys exist only in a small transient in-memory map.
 type diagnosticState struct {
+	acl                                  *outboundResourcePolicy
+	aclNoted                             bool
 	anchors                              map[[13]byte]*tcpSequenceAnchor
 	badIPTX, badTCPTX, badIPRX, badTCPRX uint64
 	dropNotedTX, dropNotedRX             bool
@@ -94,6 +96,11 @@ func (d *diagnosticState) summary() string {
 		d.guard.mu.Lock()
 		result += fmt.Sprintf(" tcp_drop_tx=%d tcp_drop_rx=%d local_rst=%d", d.guard.droppedTX, d.guard.droppedRX, d.guard.resets)
 		d.guard.mu.Unlock()
+	}
+	if d.acl != nil {
+		d.acl.mu.Lock()
+		result += fmt.Sprintf(" acl_drop=%d acl_rst=%d acl_rules=%d acl_bound_ips=%d", d.acl.dropped, d.acl.resets, d.acl.rules, len(d.acl.bound))
+		d.acl.mu.Unlock()
 	}
 	return result + fmt.Sprintf(" ip_bad_tx=%d tcp_bad_tx=%d ip_bad_rx=%d tcp_bad_rx=%d", d.badIPTX, d.badTCPTX, d.badIPRX, d.badTCPRX)
 }
@@ -270,7 +277,25 @@ func (d *diagnosticState) packetLocked(direction string, packet []byte) {
 			}
 		}
 	}
+	portClass := "NA"
+	if !fragment && (proto == 6 || proto == 17) && total >= ihl+4 {
+		port := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+		if strings.HasSuffix(direction, "TX") {
+			port = binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
+		}
+		switch port {
+		case 80:
+			portClass = "HTTP80"
+		case 443:
+			portClass = "HTTPS443"
+		case 53:
+			portClass = "DNS53"
+		default:
+			portClass = "OTHER"
+		}
+	}
 	entry := fmt.Sprintf("%s_F%d_%s_FLAGS_%s_SRC_%s_DST_%s_LEN_%d_PAY_%d_IPCK_%s_TCPCK_%s_SEQREL_%s_ACKREL_%s@%dms", direction, flow, kind, flags, source, peer, total, payload, ipCK, tcpCK, seqRel, ackRel, time.Since(d.start).Milliseconds())
+	entry += "_PORT_" + portClass
 	if len(d.packets) < 12 {
 		d.packets = append(d.packets, entry)
 	} else {
@@ -312,4 +337,14 @@ func (d *diagnosticState) filtered(packet []byte, out bool) {
 type tcpSequenceAnchor struct {
 	base [2]uint32
 	seen [2]bool
+}
+
+func (d *diagnosticState) aclRejected(packet []byte) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.packetLocked("ACL_DROP_TX", packet)
+	if !d.aclNoted {
+		d.noteLocked("RESOURCE_ACL_DENY")
+		d.aclNoted = true
+	}
 }
