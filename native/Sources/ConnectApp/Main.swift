@@ -12,6 +12,7 @@ import SwiftUI
     func applicationDidFinishLaunching(_ notification: Notification) {
         smokeTrace("didFinishLaunching")
         NSApp.setActivationPolicy(.regular)
+        if let icon = Bundle.main.url(forResource: "Connect", withExtension: "icns") { NSApp.applicationIconImage = NSImage(contentsOf: icon) }
         configureMainMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "连接你的网络"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 960, height: 800); window.delegate = self
@@ -29,6 +30,7 @@ import SwiftUI
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 smokeTrace("smoke task running")
                 guard self.window.isVisible, self.window.contentView != nil else { exit(1) }
+                guard let iconURL = Bundle.main.url(forResource: "Connect", withExtension: "icns"), NSImage(contentsOf: iconURL)?.isValid == true else { exit(6) }
                 let titles = self.statusItem.menu?.items.map(\.title) ?? []
                 for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
                 self.window.setContentSize(NSSize(width: 960, height: 800))

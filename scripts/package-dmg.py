@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import plistlib
+import shutil
 import subprocess
 import tempfile
 
@@ -24,13 +25,28 @@ with tempfile.TemporaryDirectory(prefix='connect-dmg-') as temporary:
     stage.mkdir()
     run('ditto', str(APP), str(stage / 'Connect.app'))
     (stage / 'Applications').symlink_to('/Applications')
-    run('hdiutil', 'create', '-ov', '-volname', 'Connect', '-srcfolder', str(stage), '-fs', 'HFS+', '-format', 'UDZO', str(image))
+    shutil.copy2(APP / 'Contents/Resources/Connect.icns', stage / '.VolumeIcon.icns')
+    raw = Path(temporary) / 'Connect-writable.dmg'
+    run('hdiutil', 'create', '-ov', '-volname', 'Connect', '-srcfolder', str(stage), '-fs', 'HFS+', '-format', 'UDRW', str(raw))
+    writable = Path(temporary) / 'writable'
+    writable.mkdir()
+    run('hdiutil', 'attach', '-nobrowse', '-mountpoint', str(writable), str(raw))
+    try:
+        run('xcrun', 'SetFile', '-a', 'C', str(writable))
+    finally:
+        run('hdiutil', 'detach', str(writable))
+    run('hdiutil', 'convert', str(raw), '-ov', '-format', 'UDZO', '-o', str(image))
     run('hdiutil', 'verify', str(image))
     mount = Path(temporary) / 'mounted'
     mount.mkdir()
     run('hdiutil', 'attach', '-readonly', '-nobrowse', '-mountpoint', str(mount), str(image))
     try:
         packaged = mount / 'Connect.app'
+        if (mount / '.VolumeIcon.icns').read_bytes() != (APP / 'Contents/Resources/Connect.icns').read_bytes():
+            raise SystemExit('Disk image volume icon mismatch')
+        flags = subprocess.check_output(['xcrun', 'GetFileInfo', '-a', str(mount)], text=True).strip()
+        if 'C' not in flags:
+            raise SystemExit('Disk image custom icon flag missing')
         if plistlib.loads((packaged / 'Contents/Info.plist').read_bytes()) != info:
             raise SystemExit('Disk image application metadata mismatch')
         if (mount / 'Applications').readlink() != Path('/Applications'):

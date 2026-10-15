@@ -5,7 +5,7 @@ import hashlib, json, os, plistlib, shutil, subprocess
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = os.environ.get('LAB_PROFILE', '')
 if PROFILE != 'A': raise SystemExit('LAB_PROFILE must be A')
-VERSION = '0.5.0-beta.20'
+VERSION = '0.5.0-beta.21'
 REFRESH_MODE = 'disabled' if PROFILE == 'A' else 'enabled'
 DIST = ROOT / 'dist-native'
 APP = DIST / 'Connect.app'
@@ -30,7 +30,24 @@ for arch in ['arm64', 'x86_64']:
     run('codesign', '--verify', '--strict', '--verbose=2', str(thin))
 run('lipo', '-create', str(DIST / 'helper-arm64'), str(DIST / 'helper-x86_64'), '-output', str(binaries / 'mchip-vpn-helper'))
 run('lipo', '-create', str(DIST / 'Broker-arm64'), str(DIST / 'Broker-x86_64'), '-output', str(binaries / 'mchip-vpn-broker'))
-info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5020', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+# Use the approved PNG unchanged as the source for all standard macOS icon sizes.
+iconset = DIST / 'Connect.iconset'
+iconset.mkdir(exist_ok=True)
+for size in [16, 32, 128, 256, 512]:
+    for scale in [1, 2]:
+        suffix = '@2x' if scale == 2 else ''
+        run('sips', '-z', str(size * scale), str(size * scale), str(ROOT / 'assets/Connect.png'), '--out', str(iconset / f'icon_{size}x{size}{suffix}.png'))
+run('iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'Connect.icns'))
+# Decode the ICNS again: validate every standard size rather than just its filename.
+checkset = DIST / 'IconCheck.iconset'
+run('iconutil', '-c', 'iconset', str(resources / 'Connect.icns'), '-o', str(checkset))
+for size in [16, 32, 128, 256, 512]:
+    for scale in [1, 2]:
+        suffix = '@2x' if scale == 2 else ''
+        png = (checkset / f'icon_{size}x{size}{suffix}.png').read_bytes()
+        if png[:8] != b'\x89PNG\r\n\x1a\n' or int.from_bytes(png[16:20], 'big') != size * scale or int.from_bytes(png[20:24], 'big') != size * scale:
+            raise SystemExit('Invalid application icon size')
+info = {'CFBundleIconFile': 'Connect.icns', 'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5021', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--verify', '--strict', '--all-architectures', '--verbose=2', str(binaries / 'mchip-vpn-helper'))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-broker'))
