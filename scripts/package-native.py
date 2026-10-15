@@ -5,7 +5,7 @@ import hashlib, json, os, plistlib, shutil, subprocess
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = os.environ.get('LAB_PROFILE', '')
 if PROFILE != 'A': raise SystemExit('LAB_PROFILE must be A')
-VERSION = '0.5.0-beta.21'
+VERSION = '0.5.0-beta.22'
 REFRESH_MODE = 'disabled' if PROFILE == 'A' else 'enabled'
 DIST = ROOT / 'dist-native'
 APP = DIST / 'Connect.app'
@@ -47,7 +47,7 @@ for size in [16, 32, 128, 256, 512]:
         png = (checkset / f'icon_{size}x{size}{suffix}.png').read_bytes()
         if png[:8] != b'\x89PNG\r\n\x1a\n' or int.from_bytes(png[16:20], 'big') != size * scale or int.from_bytes(png[20:24], 'big') != size * scale:
             raise SystemExit('Invalid application icon size')
-info = {'CFBundleIconFile': 'Connect.icns', 'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5021', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+info = {'CFBundleIconFile': 'Connect.icns', 'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5022', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--verify', '--strict', '--all-architectures', '--verbose=2', str(binaries / 'mchip-vpn-helper'))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-broker'))

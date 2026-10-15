@@ -1,10 +1,10 @@
-name: Connect beta.21 native application icon
+name: Connect beta.22 adaptive menu bar icon
 on:
   push:
     branches: ['experiment/beta-12-diagnostics']
   workflow_dispatch:
 concurrency:
-  group: beta21-diagnostics-${{ github.ref }}
+  group: beta22-diagnostics-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="0.5.0-beta.21"
+          version="0.5.0-beta.22"
           git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o "dist-native/Connect-$version-source.zip"
           cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
@@ -58,7 +58,7 @@ jobs:
           shasum -a 256 *.dmg *.zip *-source.tar.gz build-info.json DIAGNOSTICS.md > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Connect-beta21-diagnostics
+          name: Connect-beta22-diagnostics
           path: |
             dist-native/*.dmg
             dist-native/*.zip
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Connect-beta21-diagnostics
+          name: Connect-beta22-diagnostics
           path: release-assets
       - name: Publish channel diagnostic prerelease
         env:
@@ -85,4 +85,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release create v0.5.0-beta.21 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title 'Connect v0.5.0-beta.21 · 全新应用图标 · Universal' --notes-file DIAGNOSTICS.md release-assets/*.dmg release-assets/*.zip release-assets/*-source.tar.gz release-assets/build-info.json release-assets/DIAGNOSTICS.md release-assets/SHA256SUMS.txt
+          gh release create v0.5.0-beta.22 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title 'Connect v0.5.0-beta.22 · 自适应状态栏图标 · Universal' --notes-file DIAGNOSTICS.md release-assets/*.dmg release-assets/*.zip release-assets/*-source.tar.gz release-assets/build-info.json release-assets/DIAGNOSTICS.md release-assets/SHA256SUMS.txt

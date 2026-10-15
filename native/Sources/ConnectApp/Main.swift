@@ -20,7 +20,7 @@ import SwiftUI
         window.center()
         model.showWindow = { [weak self] in self?.showInterface() }
         model.onStateChange = { [weak self] in self?.updateStatus() }
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu(); menu.delegate = self; statusItem.menu = menu
         updateStatus(); showInterface()
         if ProcessInfo.processInfo.arguments.contains("--service-smoke") {
@@ -31,6 +31,12 @@ import SwiftUI
                 smokeTrace("smoke task running")
                 guard self.window.isVisible, self.window.contentView != nil else { exit(1) }
                 guard let iconURL = Bundle.main.url(forResource: "Connect", withExtension: "icns"), NSImage(contentsOf: iconURL)?.isValid == true else { exit(6) }
+                guard self.statusItem.button?.image?.isTemplate == true else { exit(7) }
+                for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                    self.statusItem.button?.appearance = NSAppearance(named: appearance)
+                    guard self.statusItem.button?.image?.isValid == true else { exit(8) }
+                }
+                self.statusItem.button?.appearance = nil
                 let titles = self.statusItem.menu?.items.map(\.title) ?? []
                 for title in ["连接 VPN", "断开 VPN", "退出程序", "显示界面"] { guard titles.contains(title) else { exit(2) } }
                 self.window.setContentSize(NSSize(width: 960, height: 800))
@@ -96,8 +102,8 @@ import SwiftUI
     private func updateStatus() {
         guard statusItem != nil else { return }
         let connected = model.vpnState == "connected"
-        let image = NSImage(systemSymbolName: connected ? "checkmark.shield.fill" : "network", accessibilityDescription: connected ? "VPN 已连接" : "VPN 未连接")
-        image?.isTemplate = true; statusItem.button?.image = image; statusItem.button?.toolTip = "连接你的网络 · " + model.vpnDetail
+        statusItem.button?.image = StatusIcon.make()
+        statusItem.button?.setAccessibilityLabel(connected ? "VPN 已连接" : "VPN 未连接"); statusItem.button?.toolTip = "连接你的网络 · " + model.vpnDetail
         guard let menu = statusItem.menu else { return }; menu.removeAllItems(); menu.autoenablesItems = false
         let state = NSMenuItem(title: model.vpnDetail, action: nil, keyEquivalent: ""); state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())
         let connect = NSMenuItem(title: "连接 VPN", action: #selector(connectVPN), keyEquivalent: ""); connect.target = self; connect.isEnabled = !terminating && !model.busy && model.vpnState == "disconnected"; menu.addItem(connect)

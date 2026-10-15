@@ -5,11 +5,11 @@
 <h1 align="center">Connect · M Chip VPN</h1>
 <p align="center">macOS 原生网络客户端 · Apple Silicon / Intel · 仅供开源学习与研究</p>
 
-[下载 v0.5.0-beta.21 DMG](https://github.com/FV4004/m-chip-vpn-login/releases/download/v0.5.0-beta.21/Connect-0.5.0-beta.21-mac-universal.dmg) · [发行说明与源码](https://github.com/FV4004/m-chip-vpn-login/releases/tag/v0.5.0-beta.21)
+[下载 v0.5.0-beta.22 DMG](https://github.com/FV4004/m-chip-vpn-login/releases/download/v0.5.0-beta.22/Connect-0.5.0-beta.22-mac-universal.dmg) · [发行说明与源码](https://github.com/FV4004/m-chip-vpn-login/releases/tag/v0.5.0-beta.22)
 
 Connect 使用 SwiftUI、AppKit 和 WKWebView 构建界面，使用 Go 辅助程序连接 VPN。发行应用不包含 Electron、Node.js 或 Chromium。蓝色圆角图标以交织路径融合 M 形与网络连接，用于应用、Dock 和 DMG 挂载磁盘。
 
-当前发行源码位于 [`experiment/beta-12-diagnostics`](https://github.com/FV4004/m-chip-vpn-login/tree/experiment/beta-12-diagnostics)，Release 同时提供对应源码 ZIP；默认分支保留此前开发历史。beta.19 的内网访问和持续连接已经用户实测；beta.20 修复密码记忆，beta.21 集成新图标，保留这些功能与修复。网关版本及业务系统兼容性仍以实际测试为准。
+当前发行源码位于 [`experiment/beta-12-diagnostics`](https://github.com/FV4004/m-chip-vpn-login/tree/experiment/beta-12-diagnostics)，Release 同时提供对应源码 ZIP；默认分支保留此前开发历史。beta.19 的内网访问和持续连接已经用户实测；beta.20 修复密码记忆，beta.21 集成应用图标，beta.22 将同款交织路径用于状态栏并自动适应深浅色，保留这些功能与修复。网关版本及业务系统兼容性仍以实际测试为准。
 
 ## 安装与使用
 
@@ -30,7 +30,7 @@ Connect 使用 SwiftUI、AppKit 和 WKWebView 构建界面，使用 Go 辅助程
 - TUN 出站按下发的 **IP 范围、协议和端口**校验；域名解析只绑定该资源声明的协议／端口，避免将未授权连接转发给网关而触发会话关闭。
 - 备选本地 SOCKS5／HTTP 代理：监听 `127.0.0.1:1080`／`127.0.0.1:1081`，需由应用设置代理。SOCKS5 支持 CONNECT，暂不支持 UDP ASSOCIATE。
 - 资源分组、搜索、三列连续滚动；卡片默认隐藏网址和端口，并提供复制地址按钮。普通内网 HTTP／HTTPS 通过系统默认浏览器访问，网关代理 Web 资源在临时 WKWebView 会话内访问。
-- 系统状态栏菜单提供连接 VPN、断开 VPN、显示界面和退出。首次关闭窗口可选择退出或最小化，并记忆选择；最小化保持连接。
+- 状态栏使用与应用同款的单色交织路径图标，由系统适配浅色、深色及菜单选中状态；菜单提供连接 VPN、断开 VPN、显示界面和退出。首次关闭窗口可选择退出或最小化，并记忆选择；最小化保持连接。
 - 内置“恢复网络配置”“修复后台服务”和日志复制入口。日志提供匿名流量摘要、校验和状态和访问规则拦截统计，不记录原始数据包内容。
 
 自动单点登录、原生远程应用以及所有网关／业务页面的兼容性尚不保证。HTTP 登录缺少传输加密，协议中的密码字段加密不能替代 HTTPS。
@@ -48,7 +48,7 @@ TUN 使用原生 UTUN 和 macOS IPv4 栈。域名 DNS 使用独立 resolver 文�
 ```sh
 git clone https://github.com/FV4004/m-chip-vpn-login.git
 cd m-chip-vpn-login
-git checkout v0.5.0-beta.21
+git checkout v0.5.0-beta.22
 (cd native && swift test)
 python3 scripts/prepare-vpn.py
 (cd vpn-helper && go test -race ./...)
@@ -56,7 +56,7 @@ LAB_PROFILE=A python3 scripts/package-native.py
 python3 scripts/package-dmg.py
 ```
 
-输出 `dist-native/Connect.app` 和 `dist-native/Connect-0.5.0-beta.21-mac-universal.dmg`。可用 Xcode 打开 `native/Package.swift` 开发；完整 TUN 应用还需要打包脚本生成的 Go 辅助程序、签名和校验文件。
+输出 `dist-native/Connect.app` 和 `dist-native/Connect-0.5.0-beta.22-mac-universal.dmg`。可用 Xcode 打开 `native/Package.swift` 开发；完整 TUN 应用还需要打包脚本生成的 Go 辅助程序、签名和校验文件。
 
 [GitHub Actions](https://github.com/FV4004/m-chip-vpn-login/actions/workflows/diagnostic.yml) 在 macOS 上运行 Swift、Go race、原生 UTUN、签名、后台服务和界面检查；图标转换后检查所有标准分辨率，DMG 实际挂载后检查磁盘图标、应用签名及可执行文件哈希。云端检查不能代替真实网关和用户设备测试。
 
