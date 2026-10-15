@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Connect · M Chip VPN</h1>
-<p align="center">macOS 原生网络客户端 · Apple Silicon  · 仅供开源学习与研究</p>
+<p align="center">macOS 原生 sangfor 客户端 · Apple Silicon  · 仅供开源学习与研究</p>
 
 [下载 v0.5.0-beta.22 DMG](https://github.com/FV4004/m-chip-vpn-login/releases/download/v0.5.0-beta.22/Connect-0.5.0-beta.22-mac-universal.dmg) · [发行说明与源码](https://github.com/FV4004/m-chip-vpn-login/releases/tag/v0.5.0-beta.22)
 
