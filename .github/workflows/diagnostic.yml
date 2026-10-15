@@ -1,10 +1,10 @@
-name: Connect beta.19 native TUN resource ACL
+name: Connect beta.20 password memory and DMG
 on:
   push:
     branches: ['experiment/beta-12-diagnostics']
   workflow_dispatch:
 concurrency:
-  group: beta19-diagnostics-${{ github.ref }}
+  group: beta20-diagnostics-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -42,22 +42,25 @@ jobs:
       - name: Native window, scrolling and status bar smoke
         timeout-minutes: 2
         run: python3 -c 'import subprocess; subprocess.run(["dist-native/Connect.app/Contents/MacOS/Connect", "--ui-smoke"], check=True, timeout=60)'
+      - name: Build and mount-verify DMG
+        run: python3 scripts/package-dmg.py
       - name: Archive complete application and corresponding source
         shell: bash
         run: |
           set -euo pipefail
-          version="0.5.0-beta.19"
+          version="0.5.0-beta.20"
           git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o "dist-native/Connect-$version-source.zip"
           cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
           cp DIAGNOSTICS.md dist-native/DIAGNOSTICS.md
           ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app "dist-native/Connect-$version-mac-universal.zip"
           cd dist-native
-          shasum -a 256 *.zip *-source.tar.gz build-info.json DIAGNOSTICS.md > SHA256SUMS.txt
+          shasum -a 256 *.dmg *.zip *-source.tar.gz build-info.json DIAGNOSTICS.md > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Connect-beta19-diagnostics
+          name: Connect-beta20-diagnostics
           path: |
+            dist-native/*.dmg
             dist-native/*.zip
             dist-native/*-source.tar.gz
             dist-native/build-info.json
@@ -73,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Connect-beta19-diagnostics
+          name: Connect-beta20-diagnostics
           path: release-assets
       - name: Publish channel diagnostic prerelease
         env:
@@ -82,4 +85,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release create v0.5.0-beta.19 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title 'Connect v0.5.0-beta.19 · TUN 资源访问规则 · Universal' --notes-file DIAGNOSTICS.md release-assets/*.zip release-assets/*-source.tar.gz release-assets/build-info.json release-assets/DIAGNOSTICS.md release-assets/SHA256SUMS.txt
+          gh release create v0.5.0-beta.20 --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title 'Connect v0.5.0-beta.20 · 记忆密码与 DMG 安装包 · Universal' --notes-file DIAGNOSTICS.md release-assets/*.dmg release-assets/*.zip release-assets/*-source.tar.gz release-assets/build-info.json release-assets/DIAGNOSTICS.md release-assets/SHA256SUMS.txt

@@ -43,22 +43,24 @@ struct VPNConnectionRequest {
     private var preparationWait: Task<Void, Never>?
     private var serverEditing = false
     private let preferences: UserDefaults
+    private let loadPassword: (String, String) -> String
+    private let savePassword: (String?, String, String) throws -> Void
     private let authFactory: (String) throws -> AuthClient
     private let vpnConnector: (VPNConnectionRequest) async throws -> Void
     private var shuttingDown = false
     private let shutdownCoordinator = ShutdownCoordinator()
     private var resourceOrigin: URL?
-    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil, vpnConnector: ((VPNConnectionRequest) async throws -> Void)? = nil, browser: ResourceBrowser? = nil) {
+    init(preferences: UserDefaults = .standard, authFactory: ((String) throws -> AuthClient)? = nil, vpnConnector: ((VPNConnectionRequest) async throws -> Void)? = nil, browser: ResourceBrowser? = nil, loadPassword: @escaping (String, String) -> String = { PasswordStore.load(server: $0, username: $1) }, savePassword: @escaping (String?, String, String) throws -> Void = { try PasswordStore.save($0, server: $1, username: $2) }) {
+        self.loadPassword = loadPassword; self.savePassword = savePassword
         self.browser = browser ?? ResourceBrowser()
         self.preferences = preferences; self.authFactory = authFactory ?? { try AuthClient($0) }
         let controller = VPNController(); self.vpn = controller
         self.vpnConnector = vpnConnector ?? { request in try await controller.start(host: request.host, port: request.port, sessionID: request.sessionID, mode: request.mode, socksPort: request.socksPort, httpPort: request.httpPort) }
         server = preferences.string(forKey: "server") ?? ""
         username = preferences.string(forKey: "username") ?? ""
-        // Every launch starts with password memory off, including upgrades from an
-        // older persisted opt-in. Stored entries are read only after explicit opt-in.
-        rememberPassword = false
-        preferences.removeObject(forKey: "rememberPassword")
+        // A missing preference defaults to off; an explicit opt-in survives relaunch.
+        rememberPassword = preferences.bool(forKey: "rememberPassword")
+        if rememberPassword { password = loadPassword(server, username) }
         vpn.onChange = { [weak self] in guard let self else { return }; self.vpnState = self.vpn.state; self.vpnDetail = self.vpn.detail; self.vpnDiagnostic = self.vpn.diagnostic; self.onStateChange?() }
     }
     private func run(_ work: @escaping () async throws -> Void) {
@@ -91,9 +93,12 @@ struct VPNConnectionRequest {
         }
     }
     func rememberChanged() {
-        preferences.removeObject(forKey: "rememberPassword")
-        if rememberPassword && password.isEmpty { password = PasswordStore.load(server: server, username: username) }
-        if !rememberPassword { do { try PasswordStore.save(nil, server: server, username: username) } catch { message = error.localizedDescription } }
+        preferences.set(rememberPassword, forKey: "rememberPassword")
+        if rememberPassword && password.isEmpty { password = loadPassword(server, username) }
+        if !rememberPassword {
+            do { try savePassword(nil, server, username) }
+            catch { message = error.localizedDescription; loginMessage = message; loginTone = .warning }
+        }
     }
     func initialize() {
         guard !server.isEmpty, !authenticated, !busy, !shuttingDown else { return }
@@ -125,7 +130,8 @@ struct VPNConnectionRequest {
             loginMessage = message; loginTone = authenticated ? .success : .neutral
             if authenticated {
                 preferences.set(server, forKey: "server"); preferences.set(username, forKey: "username")
-                if rememberPassword { do { try PasswordStore.save(password, server: server, username: username) } catch { loginMessage += " " + error.localizedDescription; loginTone = .warning } }
+                preferences.set(rememberPassword, forKey: "rememberPassword")
+                if rememberPassword { do { try savePassword(password, server, username) } catch { loginMessage += " " + error.localizedDescription; loginTone = .warning } }
                 captcha = ""; response = ""; captchaImage = nil
                 // Load portal configuration before establishing the data tunnel,
                 // matching the sequence used by the previously stable client.

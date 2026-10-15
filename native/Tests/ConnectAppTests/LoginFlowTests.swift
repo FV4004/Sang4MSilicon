@@ -30,12 +30,49 @@ final class LoginFlowTests: XCTestCase {
     @MainActor private func makeModel(preferences: UserDefaults, connector: @escaping (VPNConnectionRequest) async throws -> Void) -> AppModel {
         AppModel(preferences: preferences, authFactory: { server in let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]; return try AuthClient(server, configuration: config) }, vpnConnector: connector)
     }
-    @MainActor func testPasswordMemoryStartsOffEvenWithOldPreference() {
+    @MainActor func testPasswordMemoryDefaultsOffWithoutReadingKeychain() {
         let suite = "PasswordDefault-" + UUID().uuidString; let preferences = UserDefaults(suiteName: suite)!
         defer { preferences.removePersistentDomain(forName: suite) }
-        preferences.set(true, forKey: "rememberPassword"); preferences.set("https://vpn.example", forKey: "server"); preferences.set("user", forKey: "username")
-        let model = AppModel(preferences: preferences)
+        preferences.set("https://vpn.example", forKey: "server"); preferences.set("user", forKey: "username")
+        let model = AppModel(preferences: preferences, loadPassword: { _, _ in XCTFail("No opt-in must not read Keychain"); return "unexpected" })
         XCTAssertFalse(model.rememberPassword); XCTAssertEqual(model.password, ""); XCTAssertEqual(model.username, "user"); XCTAssertEqual(model.server, "https://vpn.example")
+    }
+    @MainActor func testPasswordMemoryRestoresAfterLoginAndRelaunchAndCanBeDisabled() async throws {
+        try installGateway()
+        let suite = "PasswordRelaunch-" + UUID().uuidString; let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        var stored: [String: String] = [:]
+        let load: (String, String) -> String = { stored[$0 + "\n" + $1] ?? "" }
+        let save: (String?, String, String) throws -> Void = { stored[$1 + "\n" + $2] = $0 }
+        let model = AppModel(preferences: preferences, authFactory: { server in
+            let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+            return try AuthClient(server, configuration: config)
+        }, vpnConnector: { _ in }, loadPassword: load, savePassword: save)
+        model.server = "https://vpn.example"; model.username = "user"; model.password = "fixture-secret"
+        model.rememberPassword = true; model.rememberChanged()
+        XCTAssertTrue(preferences.bool(forKey: "rememberPassword"))
+        model.initialize(); try await settle(model); model.login(); try await settle(model)
+        XCTAssertTrue(model.authenticated)
+        _ = await model.shutdown()
+        XCTAssertEqual(model.password, "", "Quit clears only the in-memory password")
+        let restarted = AppModel(preferences: preferences, loadPassword: load, savePassword: save)
+        XCTAssertTrue(restarted.rememberPassword); XCTAssertEqual(restarted.password, "fixture-secret")
+        XCTAssertFalse(preferences.dictionaryRepresentation().values.contains { ($0 as? String) == "fixture-secret" }, "Defaults must not hold the password")
+        XCTAssertEqual(load("https://other.example", "user"), ""); XCTAssertEqual(load("https://vpn.example", "other"), "")
+        restarted.rememberPassword = false; restarted.rememberChanged()
+        XCTAssertTrue(stored.isEmpty)
+        let forgotten = AppModel(preferences: preferences, loadPassword: { _, _ in XCTFail("Opt-out must not read Keychain"); return "unexpected" }, savePassword: save)
+        XCTAssertFalse(forgotten.rememberPassword); XCTAssertEqual(forgotten.password, "")
+    }
+    func testSystemKeychainPasswordRoundTripAndDeletion() throws {
+        let server = "https://keychain-test-" + UUID().uuidString + ".invalid"
+        defer { try? PasswordStore.save(nil, server: server, username: "fixture") }
+        try PasswordStore.save("fixture-first", server: server, username: "fixture")
+        XCTAssertEqual(PasswordStore.load(server: server, username: "fixture"), "fixture-first")
+        try PasswordStore.save("fixture-updated", server: server, username: "fixture")
+        XCTAssertEqual(PasswordStore.load(server: server, username: "fixture"), "fixture-updated")
+        try PasswordStore.save(nil, server: server, username: "fixture")
+        XCTAssertEqual(PasswordStore.load(server: server, username: "fixture"), "")
     }
     @MainActor func testSuccessfulAuthenticationAutomaticallyStartsTUN() async throws {
         try installGateway()
