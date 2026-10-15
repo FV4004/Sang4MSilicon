@@ -1,22 +1,24 @@
 <p align="center">
-  <img src="assets/Connect.png" width="144" height="144" alt="Connect 应用图标">
+  <img src="assets/Connect.png" width="144" height="144" alt="Sang4MSilicon 应用图标">
 </p>
 
-<h1 align="center">Connect · M Chip VPN</h1>
-<p align="center">macOS 原生 sangfor 客户端 · Apple Silicon  · 仅供开源学习与研究</p>
+<h1 align="center">Sang4MSilicon</h1>
+<p align="center">macOS 原生网络客户端 · Apple Silicon / Intel · 仅供开源学习与研究</p>
 
-[下载 v0.5.0-beta.22 DMG](https://github.com/FV4004/m-chip-vpn-login/releases/download/v0.5.0-beta.22/Connect-0.5.0-beta.22-mac-universal.dmg) · [发行说明与源码](https://github.com/FV4004/m-chip-vpn-login/releases/tag/v0.5.0-beta.22)
+[下载 v0.5.0-beta.22 DMG](https://github.com/FV4004/Sang4MSilicon/releases/download/v0.5.0-beta.22/Sang4MSilicon-0.5.0-beta.22-mac-universal.dmg) · [发行说明与源码](https://github.com/FV4004/Sang4MSilicon/releases/tag/v0.5.0-beta.22)
 
-Connect 使用 SwiftUI、AppKit 和 WKWebView 构建界面，使用 Go 辅助程序连接 VPN。发行应用不包含 Electron、Node.js 或 Chromium。蓝色圆角图标以交织路径融合 M 形与网络连接，用于应用、Dock 和 DMG 挂载磁盘。
+Sang4MSilicon 使用 SwiftUI、AppKit 和 WKWebView 构建界面，使用 Go 辅助程序连接 VPN。发行应用不包含 Electron、Node.js 或 Chromium。蓝色圆角图标以交织路径融合 M 形与网络连接，用于应用、Dock 和 DMG 挂载磁盘。
 
-当前发行源码位于 [`experiment/beta-12-diagnostics`](https://github.com/FV4004/m-chip-vpn-login/tree/experiment/beta-12-diagnostics)，Release 同时提供对应源码 ZIP；默认分支保留此前开发历史。beta.19 的内网访问和持续连接已经用户实测；beta.20 修复密码记忆，beta.21 集成应用图标，beta.22 将同款交织路径用于状态栏并自动适应深浅色，保留这些功能与修复。网关版本及业务系统兼容性仍以实际测试为准。
+项目原名 Connect／M Chip VPN，现统一更名为 **Sang4MSilicon**。正式 Release 沿用 `v0.5.0-beta.22` 标签，以保留已有引用；是否为预发布以 GitHub Release 状态为准。旧预发布转为草稿，源码标签保留。
+
+当前发行源码位于 [`experiment/beta-12-diagnostics`](https://github.com/FV4004/Sang4MSilicon/tree/experiment/beta-12-diagnostics)，Release 同时提供对应源码 ZIP；默认分支保留此前开发历史。beta.19 的内网访问和持续连接已经用户实测；beta.20 修复密码记忆，beta.21 集成应用图标，beta.22 将同款交织路径用于状态栏并自动适应深浅色，保留这些功能与修复。网关版本及业务系统兼容性仍以实际测试为准。
 
 ## 安装与使用
 
-要求 **macOS 13 或更新版本**，支持 Apple Silicon（含 M 系列）， Intel平台自测。
+要求 **macOS 13 或更新版本**，支持 Apple Silicon（含 M 系列）与 Intel x86_64。
 
-1. 退出旧版 Connect，下载并打开 DMG，将 **Connect 拖入“应用程序”**；已有旧版时选择替换。
-2. 推出磁盘映像，从“应用程序”启动。测试版使用临时签名，尚未进行 Apple Developer ID 签名或公证；若系统阻止打开，请在“系统设置 → 隐私与安全性”按系统提示允许。
+1. 退出旧版 Connect／Sang4MSilicon，下载并打开 DMG，将 **Sang4MSilicon 拖入“应用程序”**；已有同名旧版时选择替换。若旧版仍名为 `Connect.app`，请退出并删除旧应用，避免同时运行。
+2. 推出磁盘映像，从“应用程序”启动。当前安装包使用临时签名，尚未进行 Apple Developer ID 签名或公证；若系统阻止打开，请在“系统设置 → 隐私与安全性”按系统提示允许。
 3. 输入 HTTP 或 HTTPS 服务器地址、用户 ID 和密码，按网关要求输入验证码或完成后续认证。默认端口为 HTTP 80／HTTPS 443，也支持自定义端口。
 4. 认证成功后自动连接 **TUN 内网分流**。首次使用需要 macOS 管理员授权安装后台服务；同版后续连接复用授权，更新程序后可能需要重新授权。管理员密码不保存。
 5. 在“内网资源”中按分组查找资源，点击“浏览器访问”或复制地址。正常退出会断开 VPN、清理本次路由与 DNS，并请求结束网关登录会话。
@@ -43,12 +45,12 @@ TUN 使用原生 UTUN 和 macOS IPv4 栈。域名 DNS 使用独立 resolver 文�
 
 ## 从源码构建
 
-在安装 Xcode／Command Line Tools 和 Go 1.26.0 的 macOS 上，使用发行标签对应的源码：
+在安装 Xcode／Command Line Tools 和 Go 1.26.0 的 macOS 上，使用 Release 提供的对应源码 ZIP，或检出当前发行分支：
 
 ```sh
-git clone https://github.com/FV4004/m-chip-vpn-login.git
-cd m-chip-vpn-login
-git checkout v0.5.0-beta.22
+git clone https://github.com/FV4004/Sang4MSilicon.git
+cd Sang4MSilicon
+git checkout experiment/beta-12-diagnostics
 (cd native && swift test)
 python3 scripts/prepare-vpn.py
 (cd vpn-helper && go test -race ./...)
@@ -56,12 +58,14 @@ LAB_PROFILE=A python3 scripts/package-native.py
 python3 scripts/package-dmg.py
 ```
 
-输出 `dist-native/Connect.app` 和 `dist-native/Connect-0.5.0-beta.22-mac-universal.dmg`。可用 Xcode 打开 `native/Package.swift` 开发；完整 TUN 应用还需要打包脚本生成的 Go 辅助程序、签名和校验文件。
+输出 `dist-native/Sang4MSilicon.app` 和 `dist-native/Sang4MSilicon-0.5.0-beta.22-mac-universal.dmg`。可用 Xcode 打开 `native/Package.swift` 开发；完整 TUN 应用还需要打包脚本生成的 Go 辅助程序、签名和校验文件。
 
-[GitHub Actions](https://github.com/FV4004/m-chip-vpn-login/actions/workflows/diagnostic.yml) 在 macOS 上运行 Swift、Go race、原生 UTUN、签名、后台服务和界面检查；图标转换后检查所有标准分辨率，DMG 实际挂载后检查磁盘图标、应用签名及可执行文件哈希。云端检查不能代替真实网关和用户设备测试。
+[GitHub Actions](https://github.com/FV4004/Sang4MSilicon/actions/workflows/diagnostic.yml) 在 macOS 上运行 Swift、Go race、原生 UTUN、签名、后台服务和界面检查；图标转换后检查所有标准分辨率，DMG 实际挂载后检查磁盘图标、应用签名及可执行文件哈希。云端检查不能代替真实网关和用户设备测试。
 
 ## 源码与许可
 
 项目采用 [AGPL-3.0-only](LICENSE)。协议 helper 使用 [zju-connect](https://github.com/Mythologyli/zju-connect)，固定提交 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63`，保留上游许可和署名。构建脚本验证下载归档并应用项目补丁；发行包不包含厂商 DMG 中的二进制或私有脚本。
+
+更名安装包由 Release 构建记录所指向的提交构建，原 `v0.5.0-beta.22` 标签保持不变；精确提交见 `build-info.json` 和 Release 说明。
 
 Release 提供本项目源码 ZIP、固定上游及 compress 1.18.6 源码、构建信息和 SHA256 校验。完整组件署名见[组件说明](app/THIRD_PARTY_NOTICES.md)。原始应用图标位于 [`assets/Connect.png`](assets/Connect.png)，由构建脚本转换成 macOS ICNS。

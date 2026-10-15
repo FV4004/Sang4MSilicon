@@ -1,4 +1,4 @@
-name: Swift native macOS Universal beta
+name: Sang4MSilicon legacy native build
 on:
   push:
     branches: ['main', 'feature/swift-native']
@@ -44,7 +44,7 @@ jobs:
       - name: Verify source provenance and archive
         run: |
           set -euo pipefail
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist-native/Connect-0.5.0-beta.10-source.zip
+          git archive --format=zip --prefix=Sang4MSilicon/ HEAD -o dist-native/Connect-0.5.0-beta.10-source.zip
           cp .build/upstream.tar.gz dist-native/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist-native/compress-1.18.6-source.tar.gz
           ditto -c -k --sequesterRsrc --keepParent dist-native/Connect.app dist-native/Connect-0.5.0-beta.10-mac-universal.zip

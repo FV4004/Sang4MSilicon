@@ -30,7 +30,7 @@ for arch in ['arm64', 'x86_64']:
     run('codesign', '--verify', '--strict', '--verbose=2', str(thin))
 run('lipo', '-create', str(DIST / 'helper-arm64'), str(DIST / 'helper-x86_64'), '-output', str(binaries / 'mchip-vpn-helper'))
 run('lipo', '-create', str(DIST / 'Broker-arm64'), str(DIST / 'Broker-x86_64'), '-output', str(binaries / 'mchip-vpn-broker'))
-info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5020', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+info = {'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Sang4MSilicon', 'CFBundleDisplayName': 'Sang4MSilicon', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5020', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--verify', '--strict', '--all-architectures', '--verbose=2', str(binaries / 'mchip-vpn-helper'))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-broker'))

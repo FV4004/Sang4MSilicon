@@ -29,7 +29,7 @@ struct RootView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Text("M").font(.system(size: 24, weight: .semibold)).foregroundStyle(.white).frame(width: 40, height: 40).background(Color.accentColor).clipShape(RoundedRectangle(cornerRadius: 11))
-                Text("CONNECT LAB").font(.system(size: 11, weight: .semibold)).tracking(2)
+                Text("Sang4MSilicon").font(.system(size: 12, weight: .semibold)).tracking(0.3)
             }
             Text("MACOS · NATIVE").font(.system(size: 10, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary).padding(.top, 54)
             Text("从这里，\n连接你的网络。").font(.system(size: 32, weight: .medium)).lineSpacing(10).padding(.top, 16)

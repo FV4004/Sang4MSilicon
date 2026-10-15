@@ -1,4 +1,4 @@
-name: macOS arm64 beta
+name: Sang4MSilicon legacy Electron build
 on:
   push:
     branches: ['feature/resource-catalog-and-lifecycle']
@@ -47,8 +47,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app_path='dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app'
-          test "$(lipo -archs "$app_path/Contents/MacOS/M Chip VPN Login")" = arm64
+          app_path='dist/Sang4MSilicon-darwin-arm64/Sang4MSilicon.app'
+          test "$(lipo -archs "$app_path/Contents/MacOS/Sang4MSilicon")" = arm64
           test "$(lipo -archs "$app_path/Contents/Resources/bin/mchip-vpn-helper")" = arm64
           codesign --force --sign - "$app_path/Contents/Resources/bin/mchip-vpn-helper"
           codesign --verify --strict "$app_path/Contents/Resources/bin/mchip-vpn-helper"
@@ -62,18 +62,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent 'dist/M Chip VPN Login-darwin-arm64/M Chip VPN Login.app' 'dist/MChipVPNLogin-0.4.0-beta.1-mac-arm64.zip'
-          git archive --format=zip --prefix=m-chip-vpn-login/ HEAD -o dist/MChipVPNLogin-0.4.0-beta.1-source.zip
+          ditto -c -k --sequesterRsrc --keepParent 'dist/Sang4MSilicon-darwin-arm64/Sang4MSilicon.app' 'dist/Sang4MSilicon-0.4.0-beta.1-mac-arm64.zip'
+          git archive --format=zip --prefix=Sang4MSilicon/ HEAD -o dist/Sang4MSilicon-0.4.0-beta.1-source.zip
           cp .build/upstream.tar.gz dist/zju-connect-c19eb4ed-source.tar.gz
           cp .build/compress.tar.gz dist/compress-1.18.6-source.tar.gz
           cd dist
-          shasum -a 256 MChipVPNLogin-0.4.0-beta.1-mac-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 Sang4MSilicon-0.4.0-beta.1-mac-arm64.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: MChipVPNLogin-mac-arm64-beta
+          name: Sang4MSilicon-mac-arm64-beta
           path: |
-            dist/MChipVPNLogin-0.4.0-beta.1-mac-arm64.zip
-            dist/MChipVPNLogin-0.4.0-beta.1-source.zip
+            dist/Sang4MSilicon-0.4.0-beta.1-mac-arm64.zip
+            dist/Sang4MSilicon-0.4.0-beta.1-source.zip
             dist/*-source.tar.gz
             dist/SHA256SUMS.txt
             dist/build-info.json
@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: MChipVPNLogin-mac-arm64-beta
+          name: Sang4MSilicon-mac-arm64-beta
           path: dist
       - name: Publish prerelease
         env:
@@ -95,4 +95,4 @@ jobs:
         run: |
           release_tag="v0.4.0-beta.1"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then release_tag="$GITHUB_REF_NAME"; fi
-          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "M Chip VPN Login $release_tag" --notes 'Resource catalog integration branch beta. Adds grouping, names, addresses and ports with search/pagination, direct HTTP/HTTPS opening after TUN connects, and gateway Web proxy access in isolated ephemeral browser windows. First window close offers Quit or Minimize with remembered choice; explicit quit disconnects TUN and attempts server logout before clearing local sessions. Main branch is unchanged. SSO automation and native remote application launching are outside this beta. Mock gateway/lifecycle tests and macOS UTUN/signing checks passed; real resource gateway compatibility needs user testing. No Apple Developer ID or notarization. AGPL source included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json
+          gh release create "$release_tag" --target "$BUILD_SHA" --repo "$GITHUB_REPOSITORY" --prerelease --title "Sang4MSilicon $release_tag" --notes 'Resource catalog integration branch beta. Adds grouping, names, addresses and ports with search/pagination, direct HTTP/HTTPS opening after TUN connects, and gateway Web proxy access in isolated ephemeral browser windows. First window close offers Quit or Minimize with remembered choice; explicit quit disconnects TUN and attempts server logout before clearing local sessions. Main branch is unchanged. SSO automation and native remote application launching are outside this beta. Mock gateway/lifecycle tests and macOS UTUN/signing checks passed; real resource gateway compatibility needs user testing. No Apple Developer ID or notarization. AGPL source included.' dist/*.zip dist/*-source.tar.gz dist/SHA256SUMS.txt dist/build-info.json

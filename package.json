@@ -1,7 +1,7 @@
 {
-  "name": "m-chip-vpn-login",
+  "name": "sang4msilicon",
   "version": "0.4.0-beta.1",
-  "description": "Open-source educational Apple Silicon VPN client with TUN and local proxies",
+  "description": "Development tools for the Sang4MSilicon macOS VPN client",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.cjs",
@@ -12,5 +12,9 @@
   "devDependencies": {
     "@electron/packager": "20.3.0"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FV4004/Sang4MSilicon.git"
+  }
 }
