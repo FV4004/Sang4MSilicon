@@ -15,7 +15,7 @@ import SwiftUI
         if let icon = Bundle.main.url(forResource: "Connect", withExtension: "icns") { NSApp.applicationIconImage = NSImage(contentsOf: icon) }
         configureMainMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "连接你的网络"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 960, height: 800); window.delegate = self
+        window.title = "Sang4MSilicon"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 960, height: 800); window.delegate = self
         window.contentView = NSHostingView(rootView: RootView(model: model, closeSettings: { [weak self] in self?.closeSettings() }, quit: { [weak self] in self?.requestQuit() }))
         window.center()
         model.showWindow = { [weak self] in self?.showInterface() }
@@ -103,7 +103,7 @@ import SwiftUI
         guard statusItem != nil else { return }
         let connected = model.vpnState == "connected"
         statusItem.button?.image = StatusIcon.make()
-        statusItem.button?.setAccessibilityLabel(connected ? "VPN 已连接" : "VPN 未连接"); statusItem.button?.toolTip = "连接你的网络 · " + model.vpnDetail
+        statusItem.button?.setAccessibilityLabel(connected ? "VPN 已连接" : "VPN 未连接"); statusItem.button?.toolTip = "Sang4MSilicon · " + model.vpnDetail
         guard let menu = statusItem.menu else { return }; menu.removeAllItems(); menu.autoenablesItems = false
         let state = NSMenuItem(title: model.vpnDetail, action: nil, keyEquivalent: ""); state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())
         let connect = NSMenuItem(title: "连接 VPN", action: #selector(connectVPN), keyEquivalent: ""); connect.target = self; connect.isEnabled = !terminating && !model.busy && model.vpnState == "disconnected"; menu.addItem(connect)

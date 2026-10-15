@@ -12,7 +12,7 @@ const {createHash} = require('node:crypto');
  fs.chmodSync(path.join(root, '.build', 'bin', 'mchip-vpn-helper'),0o755);
  fs.writeFileSync(path.join(root,'.build','bin','mchip-vpn-helper.sha256'),createHash('sha256').update(fs.readFileSync(helper)).digest('hex')+'\n');
  const paths = await packager({
-  dir: path.join(root, 'app'), out: path.join(root, 'dist'), name: 'M Chip VPN Login',
+  dir: path.join(root, 'app'), out: path.join(root, 'dist'), name: 'Sang4MSilicon',
   platform: 'darwin', arch: 'arm64', electronVersion: '44.7.0',
   appBundleId: 'dev.connectlab.mchip-vpn-login', appVersion: '0.4.0-beta.1',
   appCategoryType: 'public.app-category.utilities', asar: true, overwrite: true,

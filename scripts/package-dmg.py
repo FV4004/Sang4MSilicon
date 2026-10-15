@@ -9,7 +9,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist-native'
-APP = DIST / 'Connect.app'
+APP = DIST / 'Sang4MSilicon.app'
 
 
 def run(*args):
@@ -18,16 +18,16 @@ def run(*args):
 
 info = plistlib.loads((APP / 'Contents/Info.plist').read_bytes())
 version = info['CFBundleShortVersionString']
-image = DIST / f'Connect-{version}-mac-universal.dmg'
+image = DIST / f'Sang4MSilicon-{version}-mac-universal.dmg'
 run('codesign', '--verify', '--deep', '--strict', '--all-architectures', str(APP))
 with tempfile.TemporaryDirectory(prefix='connect-dmg-') as temporary:
     stage = Path(temporary) / 'contents'
     stage.mkdir()
-    run('ditto', str(APP), str(stage / 'Connect.app'))
+    run('ditto', str(APP), str(stage / 'Sang4MSilicon.app'))
     (stage / 'Applications').symlink_to('/Applications')
     shutil.copy2(APP / 'Contents/Resources/Connect.icns', stage / '.VolumeIcon.icns')
     raw = Path(temporary) / 'Connect-writable.dmg'
-    run('hdiutil', 'create', '-ov', '-volname', 'Connect', '-srcfolder', str(stage), '-fs', 'HFS+', '-format', 'UDRW', str(raw))
+    run('hdiutil', 'create', '-ov', '-volname', 'Sang4MSilicon', '-srcfolder', str(stage), '-fs', 'HFS+', '-format', 'UDRW', str(raw))
     writable = Path(temporary) / 'writable'
     writable.mkdir()
     run('hdiutil', 'attach', '-nobrowse', '-mountpoint', str(writable), str(raw))
@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='connect-dmg-') as temporary:
     mount.mkdir()
     run('hdiutil', 'attach', '-readonly', '-nobrowse', '-mountpoint', str(mount), str(image))
     try:
-        packaged = mount / 'Connect.app'
+        packaged = mount / 'Sang4MSilicon.app'
         if (mount / '.VolumeIcon.icns').read_bytes() != (APP / 'Contents/Resources/Connect.icns').read_bytes():
             raise SystemExit('Disk image volume icon mismatch')
         flags = subprocess.check_output(['xcrun', 'GetFileInfo', '-a', str(mount)], text=True).strip()

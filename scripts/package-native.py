@@ -8,7 +8,7 @@ if PROFILE != 'A': raise SystemExit('LAB_PROFILE must be A')
 VERSION = '0.5.0-beta.22'
 REFRESH_MODE = 'disabled' if PROFILE == 'A' else 'enabled'
 DIST = ROOT / 'dist-native'
-APP = DIST / 'Connect.app'
+APP = DIST / 'Sang4MSilicon.app'
 def run(*args, cwd=ROOT, env=None):
     subprocess.run(args, cwd=cwd, env=env, check=True)
 if APP.exists(): shutil.rmtree(APP)
@@ -47,7 +47,7 @@ for size in [16, 32, 128, 256, 512]:
         png = (checkset / f'icon_{size}x{size}{suffix}.png').read_bytes()
         if png[:8] != b'\x89PNG\r\n\x1a\n' or int.from_bytes(png[16:20], 'big') != size * scale or int.from_bytes(png[20:24], 'big') != size * scale:
             raise SystemExit('Invalid application icon size')
-info = {'CFBundleIconFile': 'Connect.icns', 'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Connect Diagnostics', 'CFBundleDisplayName': '连接你的网络 · 通道诊断', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5022', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
+info = {'CFBundleIconFile': 'Connect.icns', 'CFBundleExecutable': 'Connect', 'CFBundleIdentifier': 'dev.connectlab.mchip-vpn.native.diag12', 'CFBundleName': 'Sang4MSilicon', 'CFBundleDisplayName': 'Sang4MSilicon', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': VERSION, 'CFBundleVersion': '5023', 'LSMinimumSystemVersion': '13.0', 'NSHighResolutionCapable': True, 'NSLocalNetworkUsageDescription': '用于连接你提供的 VPN 服务器并访问其下发的内网资源。', 'NSPrincipalClass': 'NSApplication', 'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}}
 (APP / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 run('codesign', '--verify', '--strict', '--all-architectures', '--verbose=2', str(binaries / 'mchip-vpn-helper'))
 run('codesign', '--force', '--sign', '-', str(binaries / 'mchip-vpn-broker'))
@@ -61,5 +61,5 @@ for binary in [mac / 'Connect', binaries / 'mchip-vpn-helper', binaries / 'mchip
     arches = set(subprocess.check_output(['lipo', '-archs', str(binary)], text=True).split())
     if arches != {'arm64', 'x86_64'}: raise SystemExit('Universal architecture check failed')
 if any(resources.rglob('*.asar')) or any(resources.rglob('node_modules')): raise SystemExit('Unexpected Electron runtime')
-(DIST / 'build-info.json').write_text(json.dumps({'version': VERSION, 'experimentalProfile': PROFILE, 'sessionUpdateMode': REFRESH_MODE, 'baseline': '0.5.0-beta.10', 'realGatewayTested': False, 'ciMacOS': '15', 'framework': 'SwiftUI/AppKit/WKWebView', 'architectures': ['arm64', 'x86_64'], 'minimumMacOS': '13.0', 'commit': os.getenv('GITHUB_SHA', ''), 'developerIdSigned': False, 'notarized': False, 'adHocSigned': True, 'helperSHA256': hashlib.sha256((binaries / 'mchip-vpn-helper').read_bytes()).hexdigest()}, indent=2))
+(DIST / 'build-info.json').write_text(json.dumps({'projectName': 'Sang4MSilicon', 'version': VERSION, 'experimentalProfile': PROFILE, 'sessionUpdateMode': REFRESH_MODE, 'baseline': '0.5.0-beta.10', 'realGatewayTested': False, 'ciMacOS': '15', 'framework': 'SwiftUI/AppKit/WKWebView', 'architectures': ['arm64', 'x86_64'], 'minimumMacOS': '13.0', 'commit': os.getenv('GITHUB_SHA', ''), 'developerIdSigned': False, 'notarized': False, 'adHocSigned': True, 'helperSHA256': hashlib.sha256((binaries / 'mchip-vpn-helper').read_bytes()).hexdigest()}, indent=2))
 print('Universal native application and helper verified')
