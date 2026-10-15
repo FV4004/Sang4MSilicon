@@ -12,6 +12,8 @@ permissions:
 jobs:
   native-test-and-package:
     runs-on: macos-15
+    env:
+      LAB_PROFILE: A
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
